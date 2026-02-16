@@ -17,6 +17,7 @@ type StackStatus struct {
 	Error    string
 	Revision string
 	RepoURL  string
+	Ref      string
 }
 
 var config *util.Config = &util.Configs
@@ -97,10 +98,29 @@ func initStacks() error {
 		if !ok {
 			return fmt.Errorf("error initializing %s stack, no such repo: %s", stack, stackConfig.Repo)
 		}
-		swarmStack := newSwarmStackFromConfig(stack, stackRepo, stackConfig, config.SopsSecretsDiscovery)
+
+		// Validate branch/tag mutual exclusivity and determine ref
+		branch := stackConfig.Branch
+		tag := stackConfig.Tag
+		var ref string
+
+		if branch != "" && tag != "" {
+			return fmt.Errorf("error initializing %s stack: cannot specify both branch and tag", stack)
+		} else if tag != "" {
+			ref = "tag:" + tag
+		} else if branch != "" {
+			ref = "branch:" + branch
+		} else {
+			// Default to main branch for backward compatibility
+			branch = "main"
+			ref = "branch:main"
+		}
+
+		swarmStack := newSwarmStackFromConfig(stack, stackRepo, branch, tag, stackConfig, config.SopsSecretsDiscovery)
 		stacks = append(stacks, swarmStack)
 		stackStatus[stack] = &StackStatus{}
 		stackStatus[stack].RepoURL = stackRepo.url
+		stackStatus[stack].Ref = ref
 	}
 	return nil
 }
