@@ -1,6 +1,7 @@
 import { Badge, Box, Flex, Text, useColorModeValue } from "@chakra-ui/react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
 import React from "react"
+import formatTimestamp from "../formatTimestamp"
 import { ServiceStatus } from "../hooks/useFetchStackServices"
 import { healthColor, healthIcon } from "./health"
 
@@ -57,6 +58,15 @@ function ServiceNode({ data }: NodeProps<ServiceFlowNode>): React.ReactElement {
           <Text fontSize="xs" color="red.500" fontWeight="semibold">
             {service.failed_tasks} failed
           </Text>
+        )}
+        {service.deferred_until && (
+          <Badge
+            colorScheme="purple"
+            textTransform="lowercase"
+            title={`Update window opens ${new Date(service.deferred_until).toLocaleString()}`}
+          >
+            held back · {formatTimestamp(service.deferred_until)}
+          </Badge>
         )}
       </Flex>
     </Box>

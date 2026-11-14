@@ -103,6 +103,40 @@ describe("StatusCard", () => {
   })
 })
 
+describe("StatusCard update windows", () => {
+  const base: StackStatus = {
+    name: "media",
+    error: "",
+    revision: "abc",
+    repo_url: "https://example.com/repo",
+    ref_type: "branch",
+    ref_value: "main",
+    compose_file: "compose.yaml",
+    last_change_at: null,
+    last_deployed_at: null
+  }
+  const inTwoHours = new Date(Date.now() + 2 * 60 * 60 * 1000 + 30 * 1000).toISOString()
+
+  it("shows a deferred badge and the next window for a deferred stack", () => {
+    render(<StatusCard status={{ ...base, deferred_until: inTwoHours }} onSelect={() => {}} />)
+
+    expect(screen.getByText("deferred")).toBeInTheDocument()
+    expect(screen.getByText("in 2h")).toBeInTheDocument()
+  })
+
+  it("lists held back services", () => {
+    render(
+      <StatusCard
+        status={{ ...base, deferred_services: { plex: inTwoHours, jellyfin: inTwoHours } }}
+        onSelect={() => {}}
+      />
+    )
+
+    expect(screen.getByText("jellyfin (in 2h), plex (in 2h)")).toBeInTheDocument()
+    expect(screen.queryByText("deferred")).not.toBeInTheDocument()
+  })
+})
+
 describe("formatTimestamp", () => {
   it("should return 'just now' for recent timestamps", () => {
     const now = new Date().toISOString()
@@ -117,6 +151,11 @@ describe("formatTimestamp", () => {
   it("should return hours ago", () => {
     const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
     expect(formatTimestamp(threeHoursAgo)).toBe("3h ago")
+  })
+
+  it("should format future timestamps", () => {
+    const inThreeHours = new Date(Date.now() + 3 * 60 * 60 * 1000 + 30 * 1000).toISOString()
+    expect(formatTimestamp(inThreeHours)).toBe("in 3h")
   })
 
   it("should return days ago", () => {

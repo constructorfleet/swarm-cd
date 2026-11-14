@@ -27,21 +27,27 @@ type stackResponse struct {
 	Error          string     `json:"error"`
 	LastChangeAt   *time.Time `json:"last_change_at"`
 	LastDeployedAt *time.Time `json:"last_deployed_at"`
+	// set while the stack update window is closed
+	DeferredUntil *time.Time `json:"deferred_until"`
+	// services held back by their update window, with the time it opens next
+	DeferredServices map[string]time.Time `json:"deferred_services"`
 }
 
 // newStackResponse is the single place a StackStatus is mapped to its JSON
 // representation, shared by every endpoint that returns stacks.
 func newStackResponse(name string, status *swarmcd.StackStatus) stackResponse {
 	return stackResponse{
-		Name:           name,
-		RepoURL:        status.RepoURL,
-		RefType:        status.RefType,
-		RefValue:       status.RefValue,
-		Revision:       status.Revision,
-		ComposeFile:    status.ComposeFile,
-		Error:          status.Error,
-		LastChangeAt:   status.LastChangeAt,
-		LastDeployedAt: status.LastDeployedAt,
+		Name:             name,
+		RepoURL:          status.RepoURL,
+		RefType:          status.RefType,
+		RefValue:         status.RefValue,
+		Revision:         status.Revision,
+		ComposeFile:      status.ComposeFile,
+		Error:            status.Error,
+		LastChangeAt:     status.LastChangeAt,
+		LastDeployedAt:   status.LastDeployedAt,
+		DeferredUntil:    status.DeferredUntil,
+		DeferredServices: status.DeferredServices,
 	}
 }
 

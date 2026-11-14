@@ -585,3 +585,30 @@ func TestGetStackServices_InternalError(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }
+
+func TestGetStackByName_Deferred(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	until := time.Date(2026, 11, 15, 2, 0, 0, 0, time.UTC)
+	cleanup := setupTestStacks(t, map[string]*swarmcd.StackStatus{
+		"media": {
+			DeferredUntil:    &until,
+			DeferredServices: map[string]time.Time{"plex": until},
+		},
+	})
+	defer cleanup()
+
+	r := gin.New()
+	r.GET("/stacks/:name", getStack)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/stacks/media", nil))
+
+	body := decodeBody(t, w)
+	if body["deferred_until"] != "2026-11-15T02:00:00Z" {
+		t.Errorf("deferred_until = %v", body["deferred_until"])
+	}
+	services, ok := body["deferred_services"].(map[string]any)
+	if !ok || services["plex"] != "2026-11-15T02:00:00Z" {
+		t.Errorf("deferred_services = %v", body["deferred_services"])
+	}
+}

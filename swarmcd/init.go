@@ -67,6 +67,7 @@ func Init() (err error) {
 	if err != nil {
 		return err
 	}
+	initMetrics()
 	return
 }
 

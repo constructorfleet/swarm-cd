@@ -210,6 +210,8 @@ When a **stack** window is closed, the stack is not pulled or deployed at all.
 When a **service** window is closed, the service is left out of the deploy and
 keeps running unchanged, while the rest of the stack is updated. Held back
 services are picked up in the first update cycle after their window opens.
+The web UI marks deferred stacks and held back services, and the
+`swarmcd_stack_deferred` / `swarmcd_service_deferred` [metrics](#metrics) expose them.
 
 An invalid cron expression never deploys outside a window: the affected stack
 is reported as failed (in the UI, the API and the `swarmcd_stack_sync_error`
@@ -251,6 +253,10 @@ SwarmCD exposes Prometheus metrics at `/metrics` on the web UI address.
 | `swarmcd_stack_deferred` | `stack` | 1 while the stack update window is closed |
 | `swarmcd_service_deferred` | `stack`, `service` | 1 for each service held back by its update window |
 | `swarmcd_stack_info` | `stack`, `repo`, `ref`, `revision` | Deployed revision of each stack; always 1 |
+| `swarmcd_service_replicas_running` | `stack`, `service` | Running tasks, read live from docker on each scrape |
+| `swarmcd_service_replicas_desired` | `stack`, `service` | Desired tasks, read live from docker on each scrape |
+| `swarmcd_service_health` | `stack`, `service`, `health` | 1 for the current health: `healthy`, `progressing` or `degraded` |
+| `swarmcd_build_info` | `version` | SwarmCD version; always 1 |
 
 Standard Go runtime and process metrics are exported as well.
 
@@ -422,13 +428,17 @@ A stack (`GET /stacks` returns an array of these):
   "compose_file": "nginx/compose.yaml",
   "error": "",
   "last_change_at": "2026-01-15T10:30:00Z",
-  "last_deployed_at": "2026-01-15T12:00:00Z"
+  "last_deployed_at": "2026-01-15T12:00:00Z",
+  "deferred_until": null,
+  "deferred_services": { "plex": "2026-01-16T03:00:00Z" }
 }
 ```
 
 `ref_type` is `branch` or `tag`. `last_change_at` is when SwarmCD last saw the revision
-change and `last_deployed_at` is the last successful reconciliation; both are `null`
-until the first successful check.
+change and `last_deployed_at` is the last time the stack was deployed; both are `null`
+until the first successful check. `deferred_until` is set while the stack
+[update window](#update-windows) is closed, and `deferred_services` lists the services
+held back by their own window, each with the time it opens next.
 
 `GET /health`:
 
@@ -463,7 +473,8 @@ until the first successful check.
       { "id": "t1", "slot": 1, "node_id": "node-1", "state": "running", "desired_state": "running", "error": "", "container_id": "c0ffee" }
     ],
     "secrets": ["tls-cert"],
-    "configs": []
+    "configs": [],
+    "deferred_until": null
   }
 ]
 ```

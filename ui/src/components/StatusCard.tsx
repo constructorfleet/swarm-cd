@@ -1,4 +1,4 @@
-import { Box, Flex, Grid, Link, Text, TextProps } from "@chakra-ui/react"
+import { Badge, Box, Flex, Grid, Link, Text, TextProps } from "@chakra-ui/react"
 import React from "react"
 import formatTimestamp from "../formatTimestamp"
 import { StackStatus } from "../hooks/useFetchStatuses"
@@ -11,12 +11,24 @@ function StatusCard({
   status: StackStatus
   onSelect: (name: string) => void
 }>): React.ReactElement {
-  const { name, error, revision, repo_url, ref_type, ref_value, last_change_at, last_deployed_at } = status
+  const {
+    name,
+    error,
+    revision,
+    repo_url,
+    ref_type,
+    ref_value,
+    last_change_at,
+    last_deployed_at,
+    deferred_until,
+    deferred_services
+  } = status
   // Lightweight stack status icon from the reconcile error field (no extra
   // Docker calls on the dashboard list): error -> degraded, otherwise healthy.
   const level = error !== "" ? "degraded" : "healthy"
   const StatusIcon = healthIcon(level)
   const statusColor = healthColor(level)
+  const heldBack = Object.entries(deferred_services ?? {}).sort(([a], [b]) => a.localeCompare(b))
 
   return (
     <Box
@@ -41,6 +53,11 @@ function StatusCard({
       }}
     >
       <Flex justify="flex-end" align="center" gap={1} mb={1}>
+        {deferred_until && (
+          <Badge colorScheme="purple" mr={2} title={`Update window opens ${new Date(deferred_until).toLocaleString()}`}>
+            deferred
+          </Badge>
+        )}
         <Box as="span" color={statusColor} display="inline-flex" title={level} aria-label={level}>
           <StatusIcon />
         </Box>
@@ -83,6 +100,20 @@ function StatusCard({
           <>
             <KeyText>Deployed:</KeyText>
             <Text>{formatTimestamp(last_deployed_at)}</Text>
+          </>
+        )}
+
+        {deferred_until && (
+          <>
+            <KeyText>Next window:</KeyText>
+            <Text>{formatTimestamp(deferred_until)}</Text>
+          </>
+        )}
+
+        {heldBack.length > 0 && (
+          <>
+            <KeyText>Held back:</KeyText>
+            <Text>{heldBack.map(([service, until]) => `${service} (${formatTimestamp(until)})`).join(", ")}</Text>
           </>
         )}
       </Grid>

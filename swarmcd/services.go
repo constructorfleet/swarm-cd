@@ -48,6 +48,8 @@ type ServiceStatus struct {
 	Tasks        []TaskStatus `json:"tasks"`   // live tasks (containers) for the service
 	Secrets      []string     `json:"secrets"` // secret names referenced by the service
 	Configs      []string     `json:"configs"` // config names referenced by the service
+	// set while the service is held back because its update window is closed
+	DeferredUntil *time.Time `json:"deferred_until"`
 }
 
 // TaskStatus is the live state of a single Swarm task (a container instance) of
@@ -94,7 +96,14 @@ func GetStackServices(stackName string) ([]ServiceStatus, error) {
 	log.Debug("listing stack services")
 
 	stateMu.RLock()
-	_, ok := stackStatus[stackName]
+	stackState, ok := stackStatus[stackName]
+	var deferredServices map[string]time.Time
+	if ok {
+		deferredServices = make(map[string]time.Time, len(stackState.DeferredServices))
+		for service, t := range stackState.DeferredServices {
+			deferredServices[service] = t
+		}
+	}
 	stateMu.RUnlock()
 	if !ok {
 		log.Debug("unknown stack requested")
@@ -141,6 +150,10 @@ func GetStackServices(stackName string) ([]ServiceStatus, error) {
 			}
 		}
 		status.FailedTasks = failed
+		// swarm names stack services <stack>_<service>
+		if nextOpen, ok := deferredServices[strings.TrimPrefix(svc.Spec.Name, stackName+"_")]; ok {
+			status.DeferredUntil = &nextOpen
+		}
 
 		log.Debug("mapped service",
 			slog.String("service", status.Name),

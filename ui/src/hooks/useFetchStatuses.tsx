@@ -11,6 +11,10 @@ export interface StackStatus {
   compose_file: string
   last_change_at: string | null
   last_deployed_at: string | null
+  // set while the stack update window is closed
+  deferred_until?: string | null
+  // services held back by their update window -> time the window opens next
+  deferred_services?: Record<string, string> | null
 }
 
 async function fetchFromServer(): Promise<StackStatus[]> {

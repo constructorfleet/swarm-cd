@@ -23,6 +23,8 @@ export interface ServiceStatus {
   tasks: TaskStatus[]
   secrets: string[]
   configs: string[]
+  // set while the service is held back because its update window is closed
+  deferred_until?: string | null
 }
 
 // Dev-mode fixture keyed by stack name (see dummyStackServices.json). The

@@ -62,4 +62,25 @@ describe("ServiceNode", () => {
 
     expect(screen.getByText(/2 failed/)).toBeInTheDocument()
   })
+
+  it("shows a held back badge when the service update window is closed", () => {
+    const inTwoHours = new Date(Date.now() + 2 * 60 * 60 * 1000 + 30 * 1000).toISOString()
+    render(
+      <ChakraProvider>
+        <ServiceNode {...nodeProps({ ...baseService, deferred_until: inTwoHours })} />
+      </ChakraProvider>
+    )
+
+    expect(screen.getByText("held back · in 2h")).toBeInTheDocument()
+  })
+
+  it("shows no held back badge otherwise", () => {
+    render(
+      <ChakraProvider>
+        <ServiceNode {...nodeProps(baseService)} />
+      </ChakraProvider>
+    )
+
+    expect(screen.queryByText(/held back/)).not.toBeInTheDocument()
+  })
 })
