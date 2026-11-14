@@ -9,12 +9,22 @@ import (
 var stackStatus = map[string]*StackStatus{}
 var stacks []*swarmStack
 
+// stateMu protects stackStatus and stacks from concurrent access.
+// Lock ordering: stateMu must never be acquired while repo.lock is held.
+// Acquiring stateMu independently (without any repo.lock) is always safe.
+var stateMu sync.RWMutex
+
 func Run() {
 	logger.Info("starting SwarmCD")
 	for {
 		logger.Info("starting update loop")
+		stateMu.RLock()
+		currentStacks := make([]*swarmStack, len(stacks))
+		copy(currentStacks, stacks)
+		stateMu.RUnlock()
+
 		var waitGroup sync.WaitGroup
-		stacksChannel := make(chan *swarmStack, len(stacks))
+		stacksChannel := make(chan *swarmStack, len(currentStacks))
 
 		// Start worker pool
 		logger.Debug(fmt.Sprintf("worker count: %d", config.Concurrency))
@@ -23,7 +33,7 @@ func Run() {
 		}
 
 		// Send stacks to workers
-		for _, swarmStack := range stacks {
+		for _, swarmStack := range currentStacks {
 			logger.Debug(fmt.Sprintf("Queueing stack %s for update", swarmStack.name))
 			waitGroup.Add(1)
 			stacksChannel <- swarmStack
@@ -48,21 +58,38 @@ func worker(workerStacks <-chan *swarmStack, waitGroup *sync.WaitGroup) {
 func updateStackThread(swarmStack *swarmStack) {
 	repoLock := swarmStack.repo.lock
 	repoLock.Lock()
-	defer repoLock.Unlock()
-
 	logger.Debug(fmt.Sprintf("%s checking if stack needs to be updated", swarmStack.name))
 	revision, err := swarmStack.updateStack()
+	repoLock.Unlock() // Release repo.lock BEFORE acquiring stateMu
+
+	stateMu.Lock()
+	status := stackStatus[swarmStack.name]
 	if err != nil {
-		stackStatus[swarmStack.name].Error = err.Error()
+		status.Error = err.Error()
+	} else {
+		status.Error = ""
+		status.Revision = revision
+	}
+	stateMu.Unlock()
+
+	if err != nil {
 		logger.Error(err.Error())
 		return
 	}
-
-	stackStatus[swarmStack.name].Error = ""
-	stackStatus[swarmStack.name].Revision = revision
 	logger.Info(fmt.Sprintf("%s stack updates check done", swarmStack.name))
 }
 
+// GetStackStatus returns a snapshot of all stack statuses under a read lock.
+// The returned map is a copy — callers cannot mutate the original values.
+// StackStatus currently contains only value types (strings); update this
+// copy logic if pointer or slice fields are added.
 func GetStackStatus() map[string]*StackStatus {
-	return stackStatus
+	stateMu.RLock()
+	defer stateMu.RUnlock()
+	snapshot := make(map[string]*StackStatus, len(stackStatus))
+	for k, v := range stackStatus {
+		cp := *v
+		snapshot[k] = &cp
+	}
+	return snapshot
 }
