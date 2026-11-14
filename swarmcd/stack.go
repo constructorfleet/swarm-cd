@@ -141,7 +141,9 @@ func (swarmStack *swarmStack) renderComposeTemplate(templateContents []byte) ([]
 		return nil, fmt.Errorf("could not read %s stack values file: %w", swarmStack.name, err)
 	}
 	var valuesMap map[string]any
-	yaml.Unmarshal(valuesBytes, &valuesMap)
+	if err = yaml.Unmarshal(valuesBytes, &valuesMap); err != nil {
+		return nil, fmt.Errorf("could not parse %s stack values file: %w", swarmStack.name, err)
+	}
 	templ, err := template.New(swarmStack.name).Parse(string(templateContents[:]))
 	if err != nil {
 		return nil, fmt.Errorf("could not parse %s stack compose file as a Go template: %w", swarmStack.name, err)
@@ -276,8 +278,13 @@ func (swarmStack *swarmStack) writeStack(composeMap map[string]any) error {
 		return fmt.Errorf("could not store compose file as yaml after calculating hashes for stack %s", swarmStack.name)
 	}
 	composeFile := path.Join(swarmStack.repo.path, swarmStack.composePath)
-	fileInfo, _ := os.Stat(composeFile)
-	os.WriteFile(composeFile, composeFileBytes, fileInfo.Mode())
+	fileInfo, err := os.Stat(composeFile)
+	if err != nil {
+		return fmt.Errorf("could not stat compose file %s: %w", composeFile, err)
+	}
+	if err = os.WriteFile(composeFile, composeFileBytes, fileInfo.Mode()); err != nil {
+		return fmt.Errorf("could not write compose file %s: %w", composeFile, err)
+	}
 	return nil
 }
 

@@ -14,12 +14,7 @@ func DecryptFile(filepath string) (err error) {
 	if err != nil {
 		return fmt.Errorf("could not decrypt the file %s: %w", filepath, err)
 	}
-	file, err := os.Create(filepath)
-	if err != nil {
-		return fmt.Errorf("could not open the file %s: %w", filepath, err)
-	}
-	defer file.Close()
-	_, err = file.Write(textBytes)
+	err = os.WriteFile(filepath, textBytes, 0600)
 	if err != nil {
 		return fmt.Errorf("could not write the file %s: %w", filepath, err)
 	}
@@ -27,16 +22,16 @@ func DecryptFile(filepath string) (err error) {
 }
 
 func getFileFormat(filename string) string {
-	extension := filepath.Ext(filename)
-	if extension == ".yaml" || extension == ".yml" {
+	switch filepath.Ext(filename) {
+	case ".yaml", ".yml":
 		return "yaml"
-	} else if extension == ".json" {
+	case ".json":
 		return "json"
-	} else if extension == ".ini" {
+	case ".ini":
 		return "ini"
-	} else if extension == ".env" {
+	case ".env":
 		return "dotenv"
-	} else {
+	default:
 		return "binary"
 	}
 }
