@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -481,5 +482,106 @@ func TestGetHealth_NoConfigWarnings(t *testing.T) {
 
 	if _, ok := body["config_warnings"]; ok {
 		t.Error("expected no config_warnings key when there are no conflicts")
+	}
+}
+
+// ---------- GET /stacks/:name/services tests ----------
+
+func servicesRouter() *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/stacks/:name/services", getStackServices)
+	return router
+}
+
+// withStubServices swaps the getStackServicesFn seam for the duration of a test.
+func withStubServices(t *testing.T, stub func(name string) ([]swarmcd.ServiceStatus, error)) {
+	t.Helper()
+	original := getStackServicesFn
+	getStackServicesFn = stub
+	t.Cleanup(func() { getStackServicesFn = original })
+}
+
+func TestGetStackServices_NotFound(t *testing.T) {
+	withStubServices(t, func(string) ([]swarmcd.ServiceStatus, error) {
+		return nil, swarmcd.ErrStackNotFound
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/stacks/unknown/services", nil)
+	servicesRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	if body := decodeBody(t, rec); body["error"] != "stack 'unknown' not found" {
+		t.Errorf("unexpected error body: %v", body)
+	}
+}
+
+func TestGetStackServices_OK(t *testing.T) {
+	withStubServices(t, func(name string) ([]swarmcd.ServiceStatus, error) {
+		return []swarmcd.ServiceStatus{
+			{
+				ID: "1", Name: "web_nginx", Image: "nginx:1.27", Mode: "replicated",
+				RunningTasks: 3, DesiredTasks: 3, Health: swarmcd.HealthHealthy,
+				Tasks:   []swarmcd.TaskStatus{{ID: "t1", Slot: 1, NodeID: "n1", State: "running", DesiredState: "running", ContainerID: "c1"}},
+				Secrets: []string{"db_password"},
+				Configs: []string{},
+			},
+		}, nil
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/stacks/web/services", nil)
+	servicesRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var got []swarmcd.ServiceStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("response is not valid JSON: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(services) = %d, want 1", len(got))
+	}
+	if got[0].Name != "web_nginx" || got[0].Health != swarmcd.HealthHealthy {
+		t.Errorf("unexpected service payload: %+v", got[0])
+	}
+
+	// The services API uses the same snake_case convention as /stacks.
+	var raw []map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("failed to decode raw response: %v", err)
+	}
+	for _, key := range []string{"id", "name", "image", "mode", "running_tasks", "desired_tasks", "failed_tasks", "health", "tasks", "secrets", "configs"} {
+		if _, ok := raw[0][key]; !ok {
+			t.Errorf("expected JSON key %q not found in service", key)
+		}
+	}
+	var tasks []map[string]json.RawMessage
+	if err := json.Unmarshal(raw[0]["tasks"], &tasks); err != nil {
+		t.Fatalf("failed to decode tasks: %v", err)
+	}
+	for _, key := range []string{"id", "slot", "node_id", "state", "desired_state", "error", "container_id"} {
+		if _, ok := tasks[0][key]; !ok {
+			t.Errorf("expected JSON key %q not found in task", key)
+		}
+	}
+}
+
+func TestGetStackServices_InternalError(t *testing.T) {
+	withStubServices(t, func(string) ([]swarmcd.ServiceStatus, error) {
+		return nil, errors.New("docker daemon unreachable")
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/stacks/web/services", nil)
+	servicesRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }

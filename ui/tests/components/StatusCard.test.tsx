@@ -1,120 +1,63 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import StatusCard from "../../src/components/StatusCard"
 import formatTimestamp from "../../src/formatTimestamp"
+import { StackStatus } from "../../src/hooks/useFetchStatuses"
 
 describe("StatusCard", () => {
-  const status = {
+  const status: StackStatus = {
     name: "Some Name Here",
+    error: "",
     revision: "3.76.1",
-    repoURL: "https://www.github.com/1234",
-    refType: "branch",
-    refValue: "main"
+    repo_url: "https://www.github.com/1234",
+    ref_type: "branch",
+    ref_value: "main",
+    compose_file: "docker-compose.yaml",
+    last_change_at: null,
+    last_deployed_at: null
   }
 
-  it("should render name, revision, and repoURL properties", () => {
-    render(
-      <StatusCard
-        name={status.name}
-        error={""}
-        revision={status.revision}
-        repoURL={status.repoURL}
-        refType={status.refType}
-        refValue={status.refValue}
-        lastChangeAt={null}
-        lastDeployedAt={null}
-      />
-    )
+  function renderCard(overrides: Partial<StackStatus> = {}, onSelect: (name: string) => void = () => {}): void {
+    render(<StatusCard status={{ ...status, ...overrides }} onSelect={onSelect} />)
+  }
+
+  it("should render name, revision, and repo_url properties", () => {
+    renderCard()
 
     expect(screen.getByText(status.name)).toBeInTheDocument()
     expect(screen.getByText(status.revision)).toBeInTheDocument()
-    expect(screen.getByText(status.repoURL)).toBeInTheDocument()
+    expect(screen.getByText(status.repo_url)).toBeInTheDocument()
   })
 
   it("should render ref as 'type: value'", () => {
-    render(
-      <StatusCard
-        name={status.name}
-        error={""}
-        revision={status.revision}
-        repoURL={status.repoURL}
-        refType={status.refType}
-        refValue={status.refValue}
-        lastChangeAt={null}
-        lastDeployedAt={null}
-      />
-    )
+    renderCard()
 
     expect(screen.getByText("branch: main")).toBeInTheDocument()
   })
 
-  it("should render repoURL as a link", () => {
-    render(
-      <StatusCard
-        name={status.name}
-        error={""}
-        revision={status.revision}
-        repoURL={status.repoURL}
-        refType={status.refType}
-        refValue={status.refValue}
-        lastChangeAt={null}
-        lastDeployedAt={null}
-      />
-    )
+  it("should render repo_url as a link", () => {
+    renderCard()
 
-    const repoUrlElement = screen.getByRole("link", { name: status.repoURL })
+    const repoUrlElement = screen.getByRole("link", { name: status.repo_url })
     expect(repoUrlElement).toBeInTheDocument()
-    expect(repoUrlElement).toHaveAttribute("href", status.repoURL)
+    expect(repoUrlElement).toHaveAttribute("href", status.repo_url)
   })
 
   it("should not render error if it is empty", () => {
-    render(
-      <StatusCard
-        name={status.name}
-        error={""}
-        revision={status.revision}
-        repoURL={status.repoURL}
-        refType={status.refType}
-        refValue={status.refValue}
-        lastChangeAt={null}
-        lastDeployedAt={null}
-      />
-    )
+    renderCard()
 
     const errorText = screen.queryByText(/error/i)
     expect(errorText).not.toBeInTheDocument()
   })
 
   it("should render error if it is not empty", () => {
-    render(
-      <StatusCard
-        name={status.name}
-        error={"Oh no!"}
-        revision={status.revision}
-        repoURL={status.repoURL}
-        refType={status.refType}
-        refValue={status.refValue}
-        lastChangeAt={null}
-        lastDeployedAt={null}
-      />
-    )
+    renderCard({ error: "Oh no!" })
 
     const errorText = screen.queryByText(/error/i)
     expect(errorText).toBeInTheDocument()
   })
 
   it("should not render timestamps when null", () => {
-    render(
-      <StatusCard
-        name={status.name}
-        error={""}
-        revision={status.revision}
-        repoURL={status.repoURL}
-        refType={status.refType}
-        refValue={status.refValue}
-        lastChangeAt={null}
-        lastDeployedAt={null}
-      />
-    )
+    renderCard()
 
     expect(screen.queryByText("Changed:")).not.toBeInTheDocument()
     expect(screen.queryByText("Deployed:")).not.toBeInTheDocument()
@@ -125,23 +68,38 @@ describe("StatusCard", () => {
     const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
     const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000).toISOString()
 
-    render(
-      <StatusCard
-        name={status.name}
-        error={""}
-        revision={status.revision}
-        repoURL={status.repoURL}
-        refType={status.refType}
-        refValue={status.refValue}
-        lastChangeAt={twoHoursAgo}
-        lastDeployedAt={fiveMinutesAgo}
-      />
-    )
+    renderCard({ last_change_at: twoHoursAgo, last_deployed_at: fiveMinutesAgo })
 
     expect(screen.getByText("Changed:")).toBeInTheDocument()
     expect(screen.getByText("2h ago")).toBeInTheDocument()
     expect(screen.getByText("Deployed:")).toBeInTheDocument()
     expect(screen.getByText("5m ago")).toBeInTheDocument()
+  })
+
+  it("shows a healthy status icon when there is no error", () => {
+    renderCard()
+    expect(screen.getByLabelText("healthy")).toBeInTheDocument()
+  })
+
+  it("shows a degraded status icon when there is an error", () => {
+    renderCard({ error: "boom" })
+    expect(screen.getByLabelText("degraded")).toBeInTheDocument()
+  })
+
+  it("calls onSelect with the stack name when clicked", () => {
+    const onSelect = vi.fn()
+    renderCard({}, onSelect)
+
+    fireEvent.click(screen.getByRole("button", { name: `View services graph for ${status.name}` }))
+    expect(onSelect).toHaveBeenCalledWith(status.name)
+  })
+
+  it("does not call onSelect when the repo link is clicked", () => {
+    const onSelect = vi.fn()
+    renderCard({}, onSelect)
+
+    fireEvent.click(screen.getByRole("link", { name: status.repo_url }))
+    expect(onSelect).not.toHaveBeenCalled()
   })
 })
 

@@ -1,0 +1,241 @@
+{
+  "Project Alpha": [
+    {
+      "id": "alpha-web",
+      "name": "alpha_web",
+      "image": "nginx:1.27",
+      "mode": "replicated",
+      "running_tasks": 3,
+      "desired_tasks": 3,
+      "failed_tasks": 0,
+      "health": "healthy",
+      "secrets": [],
+      "configs": [],
+      "tasks": [
+        {
+          "id": "alpha-web-1",
+          "slot": 1,
+          "node_id": "node-1",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "a1b2c3"
+        },
+        {
+          "id": "alpha-web-2",
+          "slot": 2,
+          "node_id": "node-2",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "d4e5f6"
+        },
+        {
+          "id": "alpha-web-3",
+          "slot": 3,
+          "node_id": "node-3",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "g7h8i9"
+        }
+      ]
+    },
+    {
+      "id": "alpha-api",
+      "name": "alpha_api",
+      "image": "ghcr.io/acme/api:v1.0.1",
+      "mode": "replicated",
+      "running_tasks": 2,
+      "desired_tasks": 2,
+      "failed_tasks": 0,
+      "health": "healthy",
+      "secrets": ["alpha-api-token"],
+      "configs": [],
+      "tasks": [
+        {
+          "id": "alpha-api-1",
+          "slot": 1,
+          "node_id": "node-1",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "aa11bb"
+        },
+        {
+          "id": "alpha-api-2",
+          "slot": 2,
+          "node_id": "node-2",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "cc22dd"
+        }
+      ]
+    },
+    {
+      "id": "alpha-worker",
+      "name": "alpha_worker",
+      "image": "ghcr.io/acme/worker:v1.0.1",
+      "mode": "replicated",
+      "running_tasks": 1,
+      "desired_tasks": 2,
+      "failed_tasks": 0,
+      "health": "progressing",
+      "secrets": [],
+      "configs": ["alpha-worker-config"],
+      "tasks": [
+        {
+          "id": "alpha-worker-1",
+          "slot": 1,
+          "node_id": "node-3",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "ee33ff"
+        },
+        {
+          "id": "alpha-worker-2",
+          "slot": 2,
+          "node_id": "node-2",
+          "state": "starting",
+          "desired_state": "running",
+          "error": "",
+          "container_id": ""
+        }
+      ]
+    }
+  ],
+  "Project Beta": [
+    {
+      "id": "beta-web",
+      "name": "beta_web",
+      "image": "caddy:2",
+      "mode": "replicated",
+      "running_tasks": 0,
+      "desired_tasks": 2,
+      "failed_tasks": 1,
+      "health": "degraded",
+      "secrets": ["beta-tls-cert", "beta-tls-key"],
+      "configs": [],
+      "tasks": [
+        {
+          "id": "beta-web-1",
+          "slot": 1,
+          "node_id": "node-1",
+          "state": "failed",
+          "desired_state": "running",
+          "error": "task: non-zero exit (1)",
+          "container_id": ""
+        },
+        {
+          "id": "beta-web-2",
+          "slot": 2,
+          "node_id": "node-2",
+          "state": "starting",
+          "desired_state": "running",
+          "error": "",
+          "container_id": ""
+        }
+      ]
+    },
+    {
+      "id": "beta-db",
+      "name": "beta_db",
+      "image": "postgres:16",
+      "mode": "replicated",
+      "running_tasks": 1,
+      "desired_tasks": 1,
+      "failed_tasks": 0,
+      "health": "healthy",
+      "secrets": ["beta-db-password"],
+      "configs": ["beta-db-config"],
+      "tasks": [
+        {
+          "id": "beta-db-1",
+          "slot": 1,
+          "node_id": "node-3",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "1234ab"
+        }
+      ]
+    }
+  ],
+  "Project Gamma": [
+    {
+      "id": "gamma-agent",
+      "name": "gamma_agent",
+      "image": "prom/node-exporter:v1.8.2",
+      "mode": "global",
+      "running_tasks": 4,
+      "desired_tasks": 4,
+      "failed_tasks": 0,
+      "health": "healthy",
+      "secrets": [],
+      "configs": [],
+      "tasks": [
+        {
+          "id": "gamma-agent-1",
+          "slot": 0,
+          "node_id": "node-1",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "ga01"
+        },
+        {
+          "id": "gamma-agent-2",
+          "slot": 0,
+          "node_id": "node-2",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "ga02"
+        },
+        {
+          "id": "gamma-agent-3",
+          "slot": 0,
+          "node_id": "node-3",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "ga03"
+        },
+        {
+          "id": "gamma-agent-4",
+          "slot": 0,
+          "node_id": "node-4",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "ga04"
+        }
+      ]
+    },
+    {
+      "id": "gamma-proxy",
+      "name": "gamma_proxy",
+      "image": "traefik:v3.1",
+      "mode": "replicated",
+      "running_tasks": 1,
+      "desired_tasks": 1,
+      "failed_tasks": 0,
+      "health": "healthy",
+      "secrets": [],
+      "configs": ["gamma-proxy-config"],
+      "tasks": [
+        {
+          "id": "gamma-proxy-1",
+          "slot": 1,
+          "node_id": "node-1",
+          "state": "running",
+          "desired_state": "running",
+          "error": "",
+          "container_id": "gp01"
+        }
+      ]
+    }
+  ]
+}

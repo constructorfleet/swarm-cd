@@ -358,6 +358,121 @@ secrets:
 ```
 Note: if running swarmcd as a user other than root, modify the docker config mount path to match.
 
+## Web UI
+
+SwarmCD serves a small web dashboard (built with React and embedded into the binary)
+on its configured `address`. The dashboard is available at `/ui` (the root path `/`
+redirects there) and lists every managed stack with the ref it watches, its current
+revision, source repo, last reconciliation error, when it last changed and was last
+deployed, and a status icon (healthy / degraded). A footer shows the SwarmCD version,
+uptime, poll interval and number of managed stacks, and a banner warns about
+configuration files that are being ignored.
+
+### Stack resource graph
+
+Click a stack to open an ArgoCD-style, **draggable** resource graph of that stack:
+
+![SwarmCD stack resource graph](assets/stack-graph.png)
+
+```
+stack ──▶ service ──▶ task (container)
+            service ╌╌▶ secret / config   (dashed)
+```
+
+- **Service nodes** show the image, mode (`replicated`/`global`), running/desired replica
+  count, a failed-task count when any tasks have failed, and a **health icon** (a heart for
+  healthy services).
+- **Task nodes** are the individual live containers, colored by their Swarm task state
+  (running / failed / transitional), with the node id and any error message.
+- **Secret/config nodes** are linked with a **dashed** edge to the services that reference them.
+- Nodes are **draggable**; positions are preserved while the graph refreshes.
+
+Service health:
+
+| Health | Meaning |
+|--------|---------|
+| Healthy | all desired replicas are running |
+| Progressing | some replicas are starting / converging (or none desired yet) |
+| Degraded | replicas are desired but none are running |
+
+A degraded stack — a failed task (with its error) and the secrets/configs each service references via dashed edges:
+
+![SwarmCD degraded stack graph](assets/stack-graph-degraded.png)
+
+## HTTP API
+
+The dashboard is backed by a read-only JSON API. All field names are `snake_case`.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /stacks` | all managed stacks, sorted by name |
+| `GET /stacks/:name` | a single stack, `404` if it is not managed by SwarmCD |
+| `GET /stacks/:name/services` | the stack's live Swarm services, `404` if the stack is unknown, `500` if the Docker daemon could not be queried |
+| `GET /health` | instance status, version, uptime and configuration warnings |
+
+A stack (`GET /stacks` returns an array of these):
+
+```json
+{
+  "name": "nginx",
+  "repo_url": "https://github.com/example/stacks",
+  "ref_type": "branch",
+  "ref_value": "main",
+  "revision": "1a2b3c4d",
+  "compose_file": "nginx/compose.yaml",
+  "error": "",
+  "last_change_at": "2026-01-15T10:30:00Z",
+  "last_deployed_at": "2026-01-15T12:00:00Z"
+}
+```
+
+`ref_type` is `branch` or `tag`. `last_change_at` is when SwarmCD last saw the revision
+change and `last_deployed_at` is the last successful reconciliation; both are `null`
+until the first successful check.
+
+`GET /health`:
+
+```json
+{
+  "status": "healthy",
+  "booted_at": "2026-01-15T09:00:00Z",
+  "version": "v1.2.3",
+  "uptime_seconds": 10800,
+  "update_interval_seconds": 120,
+  "stacks_managed": 4,
+  "config_warnings": ["stacks.yaml is ignored because stacks are defined in config.yaml"]
+}
+```
+
+`config_warnings` is omitted when there is nothing to report.
+
+`GET /stacks/:name/services`:
+
+```json
+[
+  {
+    "id": "abc123",
+    "name": "nginx_web",
+    "image": "nginx:1.27",
+    "mode": "replicated",
+    "running_tasks": 3,
+    "desired_tasks": 3,
+    "failed_tasks": 0,
+    "health": "healthy",
+    "tasks": [
+      { "id": "t1", "slot": 1, "node_id": "node-1", "state": "running", "desired_state": "running", "error": "", "container_id": "c0ffee" }
+    ],
+    "secrets": ["tls-cert"],
+    "configs": []
+  }
+]
+```
+
+The service list is read live from the Docker daemon (services labelled
+`com.docker.stack.namespace=<stack>`), sorted by name. `tasks` are the stack's live
+containers (desired-state `running`, queried via the Docker task API); `secrets`/`configs`
+are the names each service references.
+
 ## Documentation
 
 See [docs](https://github.com/m-adawi/swarm-cd/blob/main/docs).
