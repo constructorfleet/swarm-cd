@@ -36,3 +36,12 @@ stack-name:
   # default. When set to true, always pulls new images.
   # When set to false, only pulls when images tags change in the stack file.
   always_pull_containers: false
+  # Cron expression (5 fields, @descriptors and a CRON_TZ=<zone> prefix
+  # are supported) defining when this stack may be updated. Updates happen
+  # in update cycles where the schedule fired since the previous cycle,
+  # e.g. "* 2-4 * * *" allows updates between 02:00 and 04:59 UTC.
+  # When unset, the stack is updated on every cycle.
+  # Individual services can set their own window with the
+  # `swarmcd.update.window` deploy label, and their own image pull policy
+  # with the `swarmcd.image.pull: always|changed` deploy label.
+  update_window: "* 2-4 * * *"
