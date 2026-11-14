@@ -80,8 +80,7 @@ func updateStackThread(swarmStack *swarmStack) {
 		if result.Revision != "" {
 			status.Revision = result.Revision
 		}
-		if result.DeferredUntil == nil {
-			// updateStack runs `docker stack deploy` on every successful check
+		if result.Deployed {
 			status.LastDeployedAt = &now
 		}
 	}

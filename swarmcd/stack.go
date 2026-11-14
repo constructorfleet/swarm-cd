@@ -42,6 +42,8 @@ type updateResult struct {
 	// services held back because their update window is closed, with the
 	// time each window opens next
 	DeferredServices map[string]time.Time
+	// whether docker stack deploy ran
+	Deployed bool
 }
 
 func newSwarmStack(name string, repo *stackRepo, branch string, tag string, composePath string, sopsFiles []string, valuesFile string, discoverSecrets bool, alwaysPullContainers *bool) *swarmStack {
@@ -187,6 +189,7 @@ func (swarmStack *swarmStack) updateStack() (result updateResult, err error) {
 
 	log.Debug("deploying stack...")
 	err = swarmStack.deployStack(resolveImage)
+	result.Deployed = err == nil
 	return
 }
 
