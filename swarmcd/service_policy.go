@@ -96,7 +96,9 @@ type digestResolver func(image string) (string, error)
 // When no service sets the swarmcd.image.pull label, the stack-level mode is
 // used as is. Otherwise the stack is deployed with "changed", and services
 // whose effective mode is "always" get their image pinned to the current
-// registry digest, so they are updated whenever the digest moves.
+// registry digest, so they are updated whenever the digest moves. Like
+// `docker stack deploy`, an image whose digest cannot be resolved is deployed
+// unpinned with a warning rather than failing the stack.
 func applyImagePullPolicy(composeMap map[string]any, stackMode string, resolveDigest digestResolver) (string, error) {
 	services, err := getServices(composeMap)
 	if err != nil {
@@ -136,7 +138,8 @@ func applyImagePullPolicy(composeMap map[string]any, stackMode string, resolveDi
 		}
 		pinned, err := pinImageDigest(image, resolveDigest)
 		if err != nil {
-			return "", fmt.Errorf("service %s: %w", serviceName, err)
+			logger.Warn("could not pin image digest, deploying unpinned", "service", serviceName, "error", err)
+			continue
 		}
 		services[serviceName]["image"] = pinned
 	}

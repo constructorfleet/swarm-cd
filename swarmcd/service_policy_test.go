@@ -216,8 +216,13 @@ func TestApplyImagePullPolicyResolveError(t *testing.T) {
       labels:
         swarmcd.image.pull: always
 `)
-	if _, err := applyImagePullPolicy(composeMap, imagePullChanged, fakeResolver(nil)); err == nil {
-		t.Error("expected registry errors to fail the deploy")
+	mode, err := applyImagePullPolicy(composeMap, imagePullChanged, fakeResolver(nil))
+	if err != nil {
+		t.Fatalf("registry errors should not fail the deploy: %s", err)
+	}
+	services, _ := getServices(composeMap)
+	if mode != imagePullChanged || services["web"]["image"] != "nginx" {
+		t.Errorf("expected unpinned image with mode changed, got %v with %s", services["web"]["image"], mode)
 	}
 }
 
