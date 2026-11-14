@@ -18,10 +18,26 @@ type StackStatus struct {
 	Error            string
 	Revision         string
 	RepoURL          string
-	Ref              string
+	RefType          string
+	RefValue         string
+	ComposeFile      string
+	LastChangeAt     *time.Time
+	LastDeployedAt   *time.Time
 	DeferredUntil    *time.Time
 	DeferredServices map[string]time.Time
 }
+
+// RuntimeInfo holds instance-level metadata set at startup.
+type RuntimeInfo struct {
+	BootedAt time.Time
+	Version  string
+}
+
+// Version is the application version, overridden at build time via
+// -ldflags "-X github.com/m-adawi/swarm-cd/swarmcd.Version=..."
+var Version = "dev"
+
+var runtimeInfo RuntimeInfo
 
 var config *util.Config = &util.Configs
 
@@ -32,6 +48,13 @@ var repos map[string]*stackRepo = map[string]*stackRepo{}
 var dockerCli *command.DockerCli
 
 func Init() (err error) {
+	stateMu.Lock()
+	runtimeInfo = RuntimeInfo{
+		BootedAt: time.Now(),
+		Version:  Version,
+	}
+	stateMu.Unlock()
+
 	err = initRepos()
 	if err != nil {
 		return err
@@ -105,28 +128,34 @@ func initStacks() error {
 		// Validate branch/tag mutual exclusivity and determine ref
 		branch := stackConfig.Branch
 		tag := stackConfig.Tag
-		var ref string
+		var refType, refValue string
 
 		if branch != "" && tag != "" {
 			return fmt.Errorf("error initializing %s stack: cannot specify both branch and tag", stack)
 		} else if tag != "" {
-			ref = "tag:" + tag
+			refType, refValue = "tag", tag
 		} else if branch != "" {
-			ref = "branch:" + branch
+			refType, refValue = "branch", branch
 		} else {
 			// Default to main branch for backward compatibility
 			branch = "main"
-			ref = "branch:main"
+			refType, refValue = "branch", "main"
 		}
 
 		swarmStack := newSwarmStackFromConfig(stack, stackRepo, branch, tag, stackConfig, config.SopsSecretsDiscovery)
 		if swarmStack.configErr != nil {
 			logger.Error(swarmStack.configErr.Error())
 		}
+
+		stateMu.Lock()
 		stacks = append(stacks, swarmStack)
-		stackStatus[stack] = &StackStatus{}
-		stackStatus[stack].RepoURL = stackRepo.url
-		stackStatus[stack].Ref = ref
+		stackStatus[stack] = &StackStatus{
+			RepoURL:     stackRepo.url,
+			RefType:     refType,
+			RefValue:    refValue,
+			ComposeFile: stackConfig.ComposeFile,
+		}
+		stateMu.Unlock()
 	}
 	return nil
 }

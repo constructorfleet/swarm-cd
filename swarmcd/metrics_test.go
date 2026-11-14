@@ -10,7 +10,7 @@ import (
 
 func TestRecordStackUpdate(t *testing.T) {
 	stack := "metrics-test"
-	status := StackStatus{RepoURL: "https://example.com/repo.git", Ref: "branch:main", Revision: "abcd1234"}
+	status := StackStatus{RepoURL: "https://example.com/repo.git", RefType: "branch", RefValue: "main", Revision: "abcd1234"}
 
 	recordStackUpdate(stack, status, updateResult{Revision: "abcd1234"}, nil, time.Second)
 	if got := testutil.ToFloat64(stackUpdatesTotal.WithLabelValues(stack, updateResultSuccess)); got != 1 {
@@ -19,7 +19,7 @@ func TestRecordStackUpdate(t *testing.T) {
 	if got := testutil.ToFloat64(stackSyncError.WithLabelValues(stack)); got != 0 {
 		t.Errorf("sync error = %v, want 0", got)
 	}
-	if got := testutil.ToFloat64(stackInfo.WithLabelValues(stack, status.RepoURL, status.Ref, "abcd1234")); got != 1 {
+	if got := testutil.ToFloat64(stackInfo.WithLabelValues(stack, status.RepoURL, "branch:main", "abcd1234")); got != 1 {
 		t.Errorf("stack info = %v, want 1", got)
 	}
 

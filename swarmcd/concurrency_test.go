@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 )
 
 // TestConcurrentStatusRead spawns N goroutines reading GetStackStatus() while
@@ -98,11 +99,15 @@ func TestGetStackStatusReturnsSnapshot(t *testing.T) {
 	stateMu.Lock()
 	oldStatus := stackStatus
 	oldStacks := stacks
+	deployedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	stackStatus = map[string]*StackStatus{
 		"snap-test": {
-			Error:    "",
-			Revision: "aabb1122",
-			RepoURL:  "http://example.com",
+			Error:          "",
+			Revision:       "aabb1122",
+			RepoURL:        "http://example.com",
+			RefType:        "branch",
+			RefValue:       "main",
+			LastDeployedAt: &deployedAt,
 		},
 	}
 	stacks = nil
@@ -119,12 +124,16 @@ func TestGetStackStatusReturnsSnapshot(t *testing.T) {
 
 	// Mutate the snapshot
 	snapshot["snap-test"].Revision = "MUTATED"
+	*snapshot["snap-test"].LastDeployedAt = time.Time{}
 	snapshot["extra"] = &StackStatus{Revision: "bogus"}
 
 	// Verify original is unchanged
 	stateMu.RLock()
 	if stackStatus["snap-test"].Revision != "aabb1122" {
 		t.Errorf("original stackStatus was mutated: got revision %q, want %q", stackStatus["snap-test"].Revision, "aabb1122")
+	}
+	if !stackStatus["snap-test"].LastDeployedAt.Equal(deployedAt) {
+		t.Errorf("original LastDeployedAt was mutated through the snapshot: got %v", stackStatus["snap-test"].LastDeployedAt)
 	}
 	if _, exists := stackStatus["extra"]; exists {
 		t.Error("original stackStatus should not contain 'extra' key")

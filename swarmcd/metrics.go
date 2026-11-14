@@ -86,5 +86,5 @@ func recordStackUpdate(stack string, status StackStatus, result updateResult, er
 	stackLastSuccess.WithLabelValues(stack).SetToCurrentTime()
 
 	stackInfo.DeletePartialMatch(prometheus.Labels{"stack": stack})
-	stackInfo.WithLabelValues(stack, status.RepoURL, status.Ref, status.Revision).Set(1)
+	stackInfo.WithLabelValues(stack, status.RepoURL, status.RefType+":"+status.RefValue, status.Revision).Set(1)
 }

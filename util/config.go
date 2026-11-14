@@ -4,9 +4,24 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/viper"
 )
+
+// ConfigConflict records whether stacks/repos are defined inline in
+// config.yaml and whether the corresponding split files also exist in the
+// configs path (in which case the split files are silently ignored).
+type ConfigConflict struct {
+	StacksInline     bool
+	ReposInline      bool
+	StacksFileExists bool
+	ReposFileExists  bool
+}
+
+// Conflict is populated during LoadConfigs and reflects the inline vs.
+// split-file state detected at startup.
+var Conflict ConfigConflict
 
 type StackConfig struct {
 	Repo                 string
@@ -48,6 +63,7 @@ func LoadConfigs() (err error) {
 	if err != nil {
 		return fmt.Errorf("could not read configuration file: %w", err)
 	}
+	Conflict = detectConflicts(configsPath)
 	if Configs.RepoConfigs == nil {
 		err = readRepoConfigs(configsPath)
 		if err != nil {
@@ -61,7 +77,49 @@ func LoadConfigs() (err error) {
 		}
 	}
 	validateConfig()
+	for _, warning := range ConfigWarnings() {
+		Logger.Warn(warning)
+	}
 	return nil
+}
+
+// detectConflicts checks whether stacks/repos were loaded inline from
+// config.yaml and whether the corresponding split files exist in path.
+// It must run before the split files are read.
+func detectConflicts(path string) ConfigConflict {
+	return ConfigConflict{
+		StacksInline:     Configs.StackConfigs != nil,
+		ReposInline:      Configs.RepoConfigs != nil,
+		StacksFileExists: yamlFileExists(path, "stacks"),
+		ReposFileExists:  yamlFileExists(path, "repos"),
+	}
+}
+
+func yamlFileExists(dir, name string) bool {
+	for _, ext := range []string{".yaml", ".yml"} {
+		if _, err := os.Stat(filepath.Join(dir, name+ext)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// ConfigWarnings returns human-readable warnings for split config files
+// that are ignored because config.yaml defines the same section inline.
+// The returned slice is empty when no conflicts exist.
+func ConfigWarnings() []string {
+	return configWarnings(Conflict)
+}
+
+func configWarnings(c ConfigConflict) []string {
+	warnings := []string{}
+	if c.StacksInline && c.StacksFileExists {
+		warnings = append(warnings, "stacks.yaml is ignored because stacks are defined in config.yaml")
+	}
+	if c.ReposInline && c.ReposFileExists {
+		warnings = append(warnings, "repos.yaml is ignored because repos are defined in config.yaml")
+	}
+	return warnings
 }
 
 func getConfigsPath() string {
