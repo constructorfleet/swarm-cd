@@ -36,6 +36,7 @@ func TestUpdateWindowIsOpen(t *testing.T) {
 		{"point in time fired since last check", "0 3 * * *", at(2, 59), at(3, 1), true},
 		{"point in time already passed", "0 3 * * *", at(3, 1), at(3, 3), false},
 		{"descriptor", "@daily", at(23, 59), at(0, 0).Add(24 * time.Hour), true},
+		{"never fires", "0 0 30 2 *", at(10, 0), at(10, 2), false},
 		{"timezone prefix", "CRON_TZ=America/Denver * 2-4 * * *", at(9, 0), at(9, 2), true},
 	}
 	for _, tt := range tests {
