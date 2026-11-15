@@ -119,9 +119,9 @@ func initStacks() error {
 			ref = "branch:main"
 		}
 
-		swarmStack, err := newSwarmStackFromConfig(stack, stackRepo, branch, tag, stackConfig, config.SopsSecretsDiscovery)
-		if err != nil {
-			return err
+		swarmStack := newSwarmStackFromConfig(stack, stackRepo, branch, tag, stackConfig, config.SopsSecretsDiscovery)
+		if swarmStack.configErr != nil {
+			logger.Error(swarmStack.configErr.Error())
 		}
 		stacks = append(stacks, swarmStack)
 		stackStatus[stack] = &StackStatus{}

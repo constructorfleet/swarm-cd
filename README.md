@@ -211,6 +211,11 @@ When a **service** window is closed, the service is left out of the deploy and
 keeps running unchanged, while the rest of the stack is updated. Held back
 services are picked up in the first update cycle after their window opens.
 
+An invalid cron expression never deploys outside a window: the affected stack
+is reported as failed (in the UI, the API and the `swarmcd_stack_sync_error`
+metric) and is not updated until the expression is fixed, while running
+services and all other stacks are left alone.
+
 ```yaml
 # stacks.yaml
 media:

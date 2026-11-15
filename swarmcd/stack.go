@@ -26,6 +26,9 @@ type swarmStack struct {
 	discoverSecrets      bool
 	alwaysPullContainers *bool
 	updateWindow         *updateWindow
+	// invalid stack configuration; the stack is reported as failed and never
+	// deployed, without affecting other stacks
+	configErr error
 	// time of the previous update cycle, used to evaluate update windows;
 	// only accessed by the worker holding the repo lock
 	lastWindowCheck time.Time
@@ -55,11 +58,10 @@ func newSwarmStack(name string, repo *stackRepo, branch string, tag string, comp
 	}
 }
 
-func newSwarmStackFromConfig(name string, repo *stackRepo, branch string, tag string, stackConfig *util.StackConfig, globalSecretsDiscovery bool) (*swarmStack, error) {
-	window, err := parseUpdateWindow(stackConfig.UpdateWindow)
-	if err != nil {
-		return nil, fmt.Errorf("error initializing %s stack: %w", name, err)
-	}
+// newSwarmStackFromConfig never fails: an invalid stack configuration is
+// recorded in configErr so the stack is reported as failed at every update
+// cycle instead of preventing SwarmCD from starting.
+func newSwarmStackFromConfig(name string, repo *stackRepo, branch string, tag string, stackConfig *util.StackConfig, globalSecretsDiscovery bool) *swarmStack {
 	swarmStack := newSwarmStack(
 		name,
 		repo,
@@ -71,8 +73,12 @@ func newSwarmStackFromConfig(name string, repo *stackRepo, branch string, tag st
 		globalSecretsDiscovery || stackConfig.SopsSecretsDiscovery,
 		stackConfig.AlwaysPullContainers,
 	)
+	window, err := parseUpdateWindow(stackConfig.UpdateWindow)
+	if err != nil {
+		swarmStack.configErr = fmt.Errorf("invalid configuration of %s stack, it will not be deployed: %w", name, err)
+	}
 	swarmStack.updateWindow = window
-	return swarmStack, nil
+	return swarmStack
 }
 
 // refAttr returns an slog attribute for the git ref (branch or tag)
@@ -88,6 +94,10 @@ func (swarmStack *swarmStack) updateStack() (result updateResult, err error) {
 		slog.String("stack", swarmStack.name),
 		swarmStack.refAttr(),
 	)
+
+	if swarmStack.configErr != nil {
+		return result, swarmStack.configErr
+	}
 
 	now := time.Now()
 	lastCheck := swarmStack.lastWindowCheck

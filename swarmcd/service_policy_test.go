@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/m-adawi/swarm-cd/util"
 )
 
 func mustParseCompose(t *testing.T, content string) map[string]any {
@@ -239,5 +241,16 @@ func TestUpdateStackWindowClosed(t *testing.T) {
 	}
 	if result.DeferredUntil == nil || !result.DeferredUntil.Equal(window.nextOpen(stack.lastWindowCheck)) {
 		t.Errorf("expected stack to be deferred until the next window, got %v", result.DeferredUntil)
+	}
+}
+
+// An invalid stack update window fails only that stack, before touching the repo
+func TestInvalidStackWindowFailsStack(t *testing.T) {
+	stack := newSwarmStackFromConfig("broken", nil, "main", "", &util.StackConfig{UpdateWindow: "nope"}, false)
+	if stack.configErr == nil {
+		t.Fatal("expected a configuration error")
+	}
+	if _, err := stack.updateStack(); err == nil {
+		t.Error("expected the update to fail with the configuration error")
 	}
 }
