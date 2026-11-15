@@ -34,12 +34,13 @@ func parseUpdateWindow(expr string) (*updateWindow, error) {
 }
 
 // isOpen reports whether the schedule fired in (lastCheck, now]. A nil window
-// is always open.
+// is always open; a schedule that never fires (e.g. "0 0 30 2 *") never is.
 func (window *updateWindow) isOpen(lastCheck time.Time, now time.Time) bool {
 	if window == nil {
 		return true
 	}
-	return !window.schedule.Next(lastCheck).After(now)
+	next := window.schedule.Next(lastCheck)
+	return !next.IsZero() && !next.After(now)
 }
 
 // nextOpen returns the next time the window opens after now.
