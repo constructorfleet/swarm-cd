@@ -59,7 +59,9 @@ func updateStackThread(swarmStack *swarmStack) {
 	repoLock := swarmStack.repo.lock
 	repoLock.Lock()
 	logger.Debug(fmt.Sprintf("%s checking if stack needs to be updated", swarmStack.name))
+	start := time.Now()
 	result, err := swarmStack.updateStack()
+	duration := time.Since(start)
 	repoLock.Unlock() // Release repo.lock BEFORE acquiring stateMu
 
 	stateMu.Lock()
@@ -74,7 +76,10 @@ func updateStackThread(swarmStack *swarmStack) {
 			status.Revision = result.Revision
 		}
 	}
+	statusCopy := *status
 	stateMu.Unlock()
+
+	recordStackUpdate(swarmStack.name, statusCopy, result, err, duration)
 
 	if err != nil {
 		logger.Error(err.Error())

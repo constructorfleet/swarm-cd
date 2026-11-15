@@ -238,6 +238,30 @@ services:
     image: lscr.io/linuxserver/sonarr:4
 ```
 
+## Metrics
+
+SwarmCD exposes Prometheus metrics at `/metrics` on the web UI address.
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `swarmcd_stack_updates_total` | `stack`, `result` | Update cycles by result: `success`, `error`, `deferred` |
+| `swarmcd_stack_update_duration_seconds` | `stack` | Duration of update cycles (histogram) |
+| `swarmcd_stack_last_success_timestamp_seconds` | `stack` | Unix time of the last successful update cycle |
+| `swarmcd_stack_sync_error` | `stack` | 1 if the last update cycle failed |
+| `swarmcd_stack_deferred` | `stack` | 1 while the stack update window is closed |
+| `swarmcd_service_deferred` | `stack`, `service` | 1 for each service held back by its update window |
+| `swarmcd_stack_info` | `stack`, `repo`, `ref`, `revision` | Deployed revision of each stack; always 1 |
+
+Standard Go runtime and process metrics are exported as well.
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: swarm-cd
+    static_configs:
+      - targets: ["swarm-cd:8080"]
+```
+
 ## Connect SwarmCD to a remote docker socket
 
 You can use the `DOCKER_HOST` environment variable to point SwarmCD to a remote docker socket,
