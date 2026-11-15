@@ -14,6 +14,9 @@ func init() {
 	router.Use(sloggin.New(util.Logger))
 	router.GET("/stacks", getStacks)
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	router.GET("/stacks/:name", getStack)
+	router.GET("/stacks/:name/services", getStackServices)
+	router.GET("/health", getHealth)
 	router.StaticFile("/ui", "ui/index.html")
 	router.Static("/assets", "ui/assets")
 	router.GET("/", func(c *gin.Context) {

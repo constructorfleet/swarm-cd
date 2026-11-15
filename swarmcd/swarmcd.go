@@ -64,16 +64,24 @@ func updateStackThread(swarmStack *swarmStack) {
 	duration := time.Since(start)
 	repoLock.Unlock() // Release repo.lock BEFORE acquiring stateMu
 
+	now := time.Now()
+
 	stateMu.Lock()
 	status := stackStatus[swarmStack.name]
 	if err != nil {
 		status.Error = err.Error()
 	} else {
+		if result.Revision != "" && result.Revision != status.Revision {
+			status.LastChangeAt = &now
+		}
 		status.Error = ""
 		status.DeferredUntil = result.DeferredUntil
 		status.DeferredServices = result.DeferredServices
 		if result.Revision != "" {
 			status.Revision = result.Revision
+		}
+		if result.Deployed {
+			status.LastDeployedAt = &now
 		}
 	}
 	statusCopy := *status
@@ -88,18 +96,25 @@ func updateStackThread(swarmStack *swarmStack) {
 	logger.Info(fmt.Sprintf("%s stack updates check done", swarmStack.name))
 }
 
+// GetRuntimeInfo returns a copy of the instance's runtime metadata.
+func GetRuntimeInfo() RuntimeInfo {
+	stateMu.RLock()
+	defer stateMu.RUnlock()
+	return runtimeInfo
+}
+
 // GetStackStatus returns a snapshot of all stack statuses under a read lock.
-// The returned map is a deep copy — callers cannot mutate the original values.
+// Pointer and map fields are deep-copied so callers cannot mutate the original
+// values; update the copy logic if more pointer, map or slice fields are added.
 func GetStackStatus() map[string]*StackStatus {
 	stateMu.RLock()
 	defer stateMu.RUnlock()
 	snapshot := make(map[string]*StackStatus, len(stackStatus))
 	for k, v := range stackStatus {
 		cp := *v
-		if v.DeferredUntil != nil {
-			t := *v.DeferredUntil
-			cp.DeferredUntil = &t
-		}
+		cp.LastChangeAt = copyTime(v.LastChangeAt)
+		cp.LastDeployedAt = copyTime(v.LastDeployedAt)
+		cp.DeferredUntil = copyTime(v.DeferredUntil)
 		if v.DeferredServices != nil {
 			cp.DeferredServices = make(map[string]time.Time, len(v.DeferredServices))
 			for service, t := range v.DeferredServices {
@@ -109,4 +124,12 @@ func GetStackStatus() map[string]*StackStatus {
 		snapshot[k] = &cp
 	}
 	return snapshot
+}
+
+func copyTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	cp := *t
+	return &cp
 }

@@ -1,21 +1,70 @@
-import { Box, Grid, Link, Text, TextProps } from "@chakra-ui/react"
+import { Badge, Box, Flex, Grid, Link, Text, TextProps } from "@chakra-ui/react"
 import React from "react"
+import formatTimestamp from "../formatTimestamp"
+import { StackStatus } from "../hooks/useFetchStatuses"
+import { healthColor, healthIcon } from "./health"
 
 function StatusCard({
-  name,
-  error,
-  revision,
-  repoURL,
-  gitRef
+  status,
+  onSelect
 }: Readonly<{
-  name: string
-  error: string
-  revision: string
-  repoURL: string
-  gitRef: string
+  status: StackStatus
+  onSelect: (name: string) => void
 }>): React.ReactElement {
+  const {
+    name,
+    error,
+    revision,
+    repo_url,
+    ref_type,
+    ref_value,
+    last_change_at,
+    last_deployed_at,
+    deferred_until,
+    deferred_services
+  } = status
+  // Lightweight stack status icon from the reconcile error field (no extra
+  // Docker calls on the dashboard list): error -> degraded, otherwise healthy.
+  const level = error !== "" ? "degraded" : "healthy"
+  const StatusIcon = healthIcon(level)
+  const statusColor = healthColor(level)
+  const heldBack = Object.entries(deferred_services ?? {}).sort(([a], [b]) => a.localeCompare(b))
+
   return (
-    <Box borderWidth="1px" borderRadius="sm" overflow="hidden" p={4} boxShadow="lg">
+    <Box
+      borderWidth="1px"
+      borderRadius="sm"
+      overflow="hidden"
+      p={4}
+      mb={3}
+      boxShadow="lg"
+      cursor="pointer"
+      transition="box-shadow 0.15s"
+      _hover={{ boxShadow: "xl" }}
+      role="button"
+      tabIndex={0}
+      aria-label={`View services graph for ${name}`}
+      onClick={() => onSelect(name)}
+      onKeyDown={e => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
+          onSelect(name)
+        }
+      }}
+    >
+      <Flex justify="flex-end" align="center" gap={1} mb={1}>
+        {deferred_until && (
+          <Badge colorScheme="purple" mr={2} title={`Update window opens ${new Date(deferred_until).toLocaleString()}`}>
+            deferred
+          </Badge>
+        )}
+        <Box as="span" color={statusColor} display="inline-flex" title={level} aria-label={level}>
+          <StatusIcon />
+        </Box>
+        <Text fontSize="xs" color={statusColor} textTransform="capitalize">
+          {level}
+        </Text>
+      </Flex>
       <Grid templateColumns="auto 1fr" gap={2}>
         <KeyText>Name:</KeyText>
         <Text>{name}</Text>
@@ -28,15 +77,45 @@ function StatusCard({
         )}
 
         <KeyText>Watching:</KeyText>
-        <Text>{gitRef}</Text>
+        <Text>
+          {ref_type}: {ref_value}
+        </Text>
 
         <KeyText>Revision:</KeyText>
         <Text>{revision}</Text>
 
         <KeyText>Repo URL:</KeyText>
-        <Link color="teal.500" href={repoURL} isExternal>
-          {repoURL}
+        <Link color="teal.500" href={repo_url} isExternal onClick={e => e.stopPropagation()}>
+          {repo_url}
         </Link>
+
+        {last_change_at && (
+          <>
+            <KeyText>Changed:</KeyText>
+            <Text>{formatTimestamp(last_change_at)}</Text>
+          </>
+        )}
+
+        {last_deployed_at && (
+          <>
+            <KeyText>Deployed:</KeyText>
+            <Text>{formatTimestamp(last_deployed_at)}</Text>
+          </>
+        )}
+
+        {deferred_until && (
+          <>
+            <KeyText>Next window:</KeyText>
+            <Text>{formatTimestamp(deferred_until)}</Text>
+          </>
+        )}
+
+        {heldBack.length > 0 && (
+          <>
+            <KeyText>Held back:</KeyText>
+            <Text>{heldBack.map(([service, until]) => `${service} (${formatTimestamp(until)})`).join(", ")}</Text>
+          </>
+        )}
       </Grid>
     </Box>
   )

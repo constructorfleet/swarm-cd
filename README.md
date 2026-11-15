@@ -210,6 +210,8 @@ When a **stack** window is closed, the stack is not pulled or deployed at all.
 When a **service** window is closed, the service is left out of the deploy and
 keeps running unchanged, while the rest of the stack is updated. Held back
 services are picked up in the first update cycle after their window opens.
+The web UI marks deferred stacks and held back services, and the
+`swarmcd_stack_deferred` / `swarmcd_service_deferred` [metrics](#metrics) expose them.
 
 An invalid cron expression never deploys outside a window: the affected stack
 is reported as failed (in the UI, the API and the `swarmcd_stack_sync_error`
@@ -251,6 +253,10 @@ SwarmCD exposes Prometheus metrics at `/metrics` on the web UI address.
 | `swarmcd_stack_deferred` | `stack` | 1 while the stack update window is closed |
 | `swarmcd_service_deferred` | `stack`, `service` | 1 for each service held back by its update window |
 | `swarmcd_stack_info` | `stack`, `repo`, `ref`, `revision` | Deployed revision of each stack; always 1 |
+| `swarmcd_service_replicas_running` | `stack`, `service` | Running tasks, read live from docker on each scrape |
+| `swarmcd_service_replicas_desired` | `stack`, `service` | Desired tasks, read live from docker on each scrape |
+| `swarmcd_service_health` | `stack`, `service`, `health` | 1 for the current health: `healthy`, `progressing` or `degraded` |
+| `swarmcd_build_info` | `version` | SwarmCD version; always 1 |
 
 Standard Go runtime and process metrics are exported as well.
 
@@ -357,6 +363,126 @@ secrets:
     file: docker-config.json
 ```
 Note: if running swarmcd as a user other than root, modify the docker config mount path to match.
+
+## Web UI
+
+SwarmCD serves a small web dashboard (built with React and embedded into the binary)
+on its configured `address`. The dashboard is available at `/ui` (the root path `/`
+redirects there) and lists every managed stack with the ref it watches, its current
+revision, source repo, last reconciliation error, when it last changed and was last
+deployed, and a status icon (healthy / degraded). A footer shows the SwarmCD version,
+uptime, poll interval and number of managed stacks, and a banner warns about
+configuration files that are being ignored.
+
+### Stack resource graph
+
+Click a stack to open an ArgoCD-style, **draggable** resource graph of that stack:
+
+![SwarmCD stack resource graph](assets/stack-graph.png)
+
+```
+stack ──▶ service ──▶ task (container)
+            service ╌╌▶ secret / config   (dashed)
+```
+
+- **Service nodes** show the image, mode (`replicated`/`global`), running/desired replica
+  count, a failed-task count when any tasks have failed, and a **health icon** (a heart for
+  healthy services).
+- **Task nodes** are the individual live containers, colored by their Swarm task state
+  (running / failed / transitional), with the node id and any error message.
+- **Secret/config nodes** are linked with a **dashed** edge to the services that reference them.
+- Nodes are **draggable**; positions are preserved while the graph refreshes.
+
+Service health:
+
+| Health | Meaning |
+|--------|---------|
+| Healthy | all desired replicas are running |
+| Progressing | some replicas are starting / converging (or none desired yet) |
+| Degraded | replicas are desired but none are running |
+
+A degraded stack — a failed task (with its error) and the secrets/configs each service references via dashed edges:
+
+![SwarmCD degraded stack graph](assets/stack-graph-degraded.png)
+
+## HTTP API
+
+The dashboard is backed by a read-only JSON API. All field names are `snake_case`.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /stacks` | all managed stacks, sorted by name |
+| `GET /stacks/:name` | a single stack, `404` if it is not managed by SwarmCD |
+| `GET /stacks/:name/services` | the stack's live Swarm services, `404` if the stack is unknown, `500` if the Docker daemon could not be queried |
+| `GET /health` | instance status, version, uptime and configuration warnings |
+
+A stack (`GET /stacks` returns an array of these):
+
+```json
+{
+  "name": "nginx",
+  "repo_url": "https://github.com/example/stacks",
+  "ref_type": "branch",
+  "ref_value": "main",
+  "revision": "1a2b3c4d",
+  "compose_file": "nginx/compose.yaml",
+  "error": "",
+  "last_change_at": "2026-01-15T10:30:00Z",
+  "last_deployed_at": "2026-01-15T12:00:00Z",
+  "deferred_until": null,
+  "deferred_services": { "plex": "2026-01-16T03:00:00Z" }
+}
+```
+
+`ref_type` is `branch` or `tag`. `last_change_at` is when SwarmCD last saw the revision
+change and `last_deployed_at` is the last time the stack was deployed; both are `null`
+until the first successful check. `deferred_until` is set while the stack
+[update window](#update-windows) is closed, and `deferred_services` lists the services
+held back by their own window, each with the time it opens next.
+
+`GET /health`:
+
+```json
+{
+  "status": "healthy",
+  "booted_at": "2026-01-15T09:00:00Z",
+  "version": "v1.2.3",
+  "uptime_seconds": 10800,
+  "update_interval_seconds": 120,
+  "stacks_managed": 4,
+  "config_warnings": ["stacks.yaml is ignored because stacks are defined in config.yaml"]
+}
+```
+
+`config_warnings` is omitted when there is nothing to report.
+
+`GET /stacks/:name/services`:
+
+```json
+[
+  {
+    "id": "abc123",
+    "name": "nginx_web",
+    "image": "nginx:1.27",
+    "mode": "replicated",
+    "running_tasks": 3,
+    "desired_tasks": 3,
+    "failed_tasks": 0,
+    "health": "healthy",
+    "tasks": [
+      { "id": "t1", "slot": 1, "node_id": "node-1", "state": "running", "desired_state": "running", "error": "", "container_id": "c0ffee" }
+    ],
+    "secrets": ["tls-cert"],
+    "configs": [],
+    "deferred_until": null
+  }
+]
+```
+
+The service list is read live from the Docker daemon (services labelled
+`com.docker.stack.namespace=<stack>`), sorted by name. `tasks` are the stack's live
+containers (desired-state `running`, queried via the Docker task API); `secrets`/`configs`
+are the names each service references.
 
 ## Documentation
 
