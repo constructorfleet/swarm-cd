@@ -8,6 +8,7 @@ on:
       - "go.sum"
       - "ui/**"
       - "Dockerfile"
+      - ".github/workflows/docker-ci.yaml"
   workflow_dispatch:
 
 jobs:
@@ -81,7 +82,7 @@ jobs:
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
-        if: ${{ github.ref_name == 'main' }}
+        if: ${{ github.ref_name == 'main' && vars.DOCKERHUB_USERNAME != '' }}
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -144,7 +145,7 @@ jobs:
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
-        if: ${{ github.ref_name == 'main' }}
+        if: ${{ github.ref_name == 'main' && vars.DOCKERHUB_USERNAME != '' }}
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -204,8 +205,9 @@ jobs:
 
   push-manifest:
     name: Push Multi-arch Manifest
-    needs: [release]
-    if: ${{ github.ref_name == 'main' && needs.release.outputs.new_release_published == 'true' }}
+    needs: [build-amd64, build-arm64, release]
+    # publish every main build; a failed release only skips the release tags
+    if: ${{ !cancelled() && github.ref_name == 'main' && needs.build-amd64.result == 'success' && needs.build-arm64.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -232,19 +234,26 @@ jobs:
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
+        if: ${{ needs.release.outputs.new_release_published == 'true' && vars.DOCKERHUB_USERNAME != '' }}
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Create manifest list and push to GHCR
         working-directory: /tmp/digests
+        env:
+          IMAGE: ghcr.io/${{ env.REPO_LC }}
+          RELEASED: ${{ needs.release.outputs.new_release_published }}
+          VERSION: ${{ needs.release.outputs.new_release_version }}
         run: |
-          docker buildx imagetools create \
-            -t ghcr.io/${{ env.REPO_LC }}:latest \
-            -t ghcr.io/${{ env.REPO_LC }}:${{ needs.release.outputs.new_release_version }} \
-            $(printf 'ghcr.io/${{ env.REPO_LC }}@sha256:%s ' *)
+          tags=(-t "$IMAGE:main" -t "$IMAGE:sha-${GITHUB_SHA::7}")
+          if [ "$RELEASED" = "true" ]; then
+            tags+=(-t "$IMAGE:latest" -t "$IMAGE:$VERSION")
+          fi
+          docker buildx imagetools create "${tags[@]}" $(printf "$IMAGE@sha256:%s " *)
 
       - name: Push to Docker Hub
+        if: ${{ needs.release.outputs.new_release_published == 'true' && vars.DOCKERHUB_USERNAME != '' }}
         working-directory: /tmp/digests
         run: |
           # Tag and push each digest to Docker Hub
@@ -260,15 +269,13 @@ jobs:
             -t ${{ vars.DOCKERHUB_USERNAME }}/swarm-cd:${{ needs.release.outputs.new_release_version }} \
             $(printf 'ghcr.io/${{ env.REPO_LC }}@sha256:%s ' *)
 
-      - name: Inspect images
-        run: |
-          docker buildx imagetools inspect ghcr.io/${{ env.REPO_LC }}:latest
-          docker buildx imagetools inspect ${{ vars.DOCKERHUB_USERNAME }}/swarm-cd:latest
+      - name: Inspect image
+        run: docker buildx imagetools inspect ghcr.io/${{ env.REPO_LC }}:sha-${GITHUB_SHA::7}
 
   update-dockerhub-description:
     name: Update Docker Hub Description
     needs: [push-manifest]
-    if: ${{ github.ref_name == 'main' }}
+    if: ${{ github.ref_name == 'main' && vars.DOCKERHUB_USERNAME != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
