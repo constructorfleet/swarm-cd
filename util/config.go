@@ -11,6 +11,7 @@ import (
 type StackConfig struct {
 	Repo                 string
 	Branch               string
+	Tag                  string
 	ComposeFile          string   `mapstructure:"compose_file"`
 	ValuesFile           string   `mapstructure:"values_file"`
 	SopsFiles            []string `mapstructure:"sops_files"`
