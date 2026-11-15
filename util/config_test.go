@@ -38,7 +38,9 @@ func TestGetConfigsPath(t *testing.T) {
 				t.Setenv(envVar, tt.envValue)
 			} else {
 				t.Setenv(envVar, "")
-				os.Unsetenv(envVar)
+				if err := os.Unsetenv(envVar); err != nil {
+					t.Fatal(err)
+				}
 			}
 
 			if got := getConfigsPath(); got != tt.want {

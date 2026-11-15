@@ -128,7 +128,7 @@ func initStacks() error {
 func initDockerCli() (err error) {
 	// suppress command outputs (errors are returned as objects)
 	nullFile, _ := os.Open("/dev/null")
-	defer nullFile.Close()
+	defer func() { _ = nullFile.Close() }()
 	dockerCli, err = command.NewDockerCli(command.WithOutputStream(nullFile), command.WithErrorStream(nullFile))
 	if err != nil {
 		return fmt.Errorf("could not create a docker cli object: %w", err)
