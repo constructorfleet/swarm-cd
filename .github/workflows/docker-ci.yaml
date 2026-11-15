@@ -8,6 +8,7 @@ on:
       - "go.sum"
       - "ui/**"
       - "Dockerfile"
+      - ".github/workflows/docker-ci.yaml"
   workflow_dispatch:
 
 jobs:
