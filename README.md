@@ -484,6 +484,33 @@ The service list is read live from the Docker daemon (services labelled
 containers (desired-state `running`, queried via the Docker task API); `secrets`/`configs`
 are the names each service references.
 
+## Development
+
+```bash
+# Go: format, vet, lint and unit tests
+gofmt -l . && go vet ./... && golangci-lint run --build-tags=integration ./... && go test -race ./...
+
+# UI
+cd ui && npm ci && npm run lint && npm run test && npm run build
+```
+
+Integration tests deploy real stacks from a local git repo to a Docker Swarm,
+pulling from a local registry. To keep them away from your own Docker daemon, run
+them against a throwaway Docker-in-Docker swarm:
+
+```bash
+docker run -d --rm --privileged --name swarmcd-it -p 127.0.0.1:23750:2375 \
+  -e DOCKER_TLS_CERTDIR= docker:27-dind
+export DOCKER_HOST=tcp://127.0.0.1:23750
+docker swarm init
+docker run -d -p 5000:5000 --name registry registry:2
+go test -tags integration -run Integration -v ./swarmcd/
+docker rm -f swarmcd-it
+```
+
+Every pull request runs all of the above, plus a Docker image build
+(`.github/workflows/pr.yaml`).
+
 ## Documentation
 
 See [docs](https://github.com/m-adawi/swarm-cd/blob/main/docs).
