@@ -59,7 +59,7 @@ func updateStackThread(swarmStack *swarmStack) {
 	repoLock := swarmStack.repo.lock
 	repoLock.Lock()
 	logger.Debug(fmt.Sprintf("%s checking if stack needs to be updated", swarmStack.name))
-	revision, err := swarmStack.updateStack()
+	result, err := swarmStack.updateStack()
 	repoLock.Unlock() // Release repo.lock BEFORE acquiring stateMu
 
 	stateMu.Lock()
@@ -68,7 +68,11 @@ func updateStackThread(swarmStack *swarmStack) {
 		status.Error = err.Error()
 	} else {
 		status.Error = ""
-		status.Revision = revision
+		status.DeferredUntil = result.DeferredUntil
+		status.DeferredServices = result.DeferredServices
+		if result.Revision != "" {
+			status.Revision = result.Revision
+		}
 	}
 	stateMu.Unlock()
 
@@ -80,15 +84,23 @@ func updateStackThread(swarmStack *swarmStack) {
 }
 
 // GetStackStatus returns a snapshot of all stack statuses under a read lock.
-// The returned map is a copy — callers cannot mutate the original values.
-// StackStatus currently contains only value types (strings); update this
-// copy logic if pointer or slice fields are added.
+// The returned map is a deep copy — callers cannot mutate the original values.
 func GetStackStatus() map[string]*StackStatus {
 	stateMu.RLock()
 	defer stateMu.RUnlock()
 	snapshot := make(map[string]*StackStatus, len(stackStatus))
 	for k, v := range stackStatus {
 		cp := *v
+		if v.DeferredUntil != nil {
+			t := *v.DeferredUntil
+			cp.DeferredUntil = &t
+		}
+		if v.DeferredServices != nil {
+			cp.DeferredServices = make(map[string]time.Time, len(v.DeferredServices))
+			for service, t := range v.DeferredServices {
+				cp.DeferredServices[service] = t
+			}
+		}
 		snapshot[k] = &cp
 	}
 	return snapshot

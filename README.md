@@ -176,6 +176,68 @@ Please note that:
 - if the global setting is set to `true`, it ignores individual stacks overrides.
 - if the stack-level setting is set to `true`, it ignores the `sops_files` setting altogether.
 
+## Image pull policy and update windows
+
+Both can be set for a whole stack in `stacks.yaml`, and overridden for
+individual services with labels in the service's `deploy.labels`.
+
+| Setting | Stack (`stacks.yaml`) | Service (`deploy.labels`) |
+|---------|-----------------------|---------------------------|
+| Image pull policy | `always_pull_containers: true\|false` | `swarmcd.image.pull: always\|changed` |
+| Update window | `update_window: "<cron>"` | `swarmcd.update.window: "<cron>"` |
+
+### Image pull policy
+
+- `always`: query the registry on every update cycle and roll the service
+  out whenever the image digest behind its tag changes.
+- `changed`: only update the service when its image reference changes in the
+  compose file.
+
+Services without the label follow the stack setting, which in turn defaults to
+the global `always_pull_containers`.
+
+### Update windows
+
+An update window is a standard 5-field cron expression
+(`minute hour day-of-month month day-of-week`). Descriptors such as `@daily`
+and a `CRON_TZ=<zone>` prefix are supported; times are UTC otherwise.
+The window is open when the schedule fired since the previous update cycle, so:
+
+- a range such as `* 2-4 * * *` allows updates any time between 02:00 and 04:59;
+- a single point such as `0 3 * * *` allows one update cycle right after 03:00.
+
+When a **stack** window is closed, the stack is not pulled or deployed at all.
+When a **service** window is closed, the service is left out of the deploy and
+keeps running unchanged, while the rest of the stack is updated. Held back
+services are picked up in the first update cycle after their window opens.
+
+An invalid cron expression never deploys outside a window: the affected stack
+is reported as failed (in the UI, the API and the `swarmcd_stack_sync_error`
+metric) and is not updated until the expression is fixed, while running
+services and all other stacks are left alone.
+
+```yaml
+# stacks.yaml
+media:
+  repo: homelab
+  compose_file: media/compose.yaml
+  always_pull_containers: false
+  update_window: "CRON_TZ=America/Denver * 1-5 * * *"
+```
+
+```yaml
+# media/compose.yaml
+services:
+  plex:
+    image: plexinc/pms-docker:latest
+    deploy:
+      labels:
+        swarmcd.image.pull: always
+        swarmcd.update.window: "CRON_TZ=America/Denver * 3-4 * * 2"
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:4
+```
+
 ## Connect SwarmCD to a remote docker socket
 
 You can use the `DOCKER_HOST` environment variable to point SwarmCD to a remote docker socket,

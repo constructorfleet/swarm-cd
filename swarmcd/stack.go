@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"text/template"
+	"time"
 
 	"github.com/docker/cli/cli/command/stack"
 	"github.com/goccy/go-yaml"
@@ -24,6 +25,23 @@ type swarmStack struct {
 	valuesFile           string
 	discoverSecrets      bool
 	alwaysPullContainers *bool
+	updateWindow         *updateWindow
+	// invalid stack configuration; the stack is reported as failed and never
+	// deployed, without affecting other stacks
+	configErr error
+	// time of the previous update cycle, used to evaluate update windows;
+	// only accessed by the worker holding the repo lock
+	lastWindowCheck time.Time
+}
+
+// updateResult describes the outcome of a successful update cycle.
+type updateResult struct {
+	Revision string
+	// set when the stack update window is closed and nothing was deployed
+	DeferredUntil *time.Time
+	// services held back because their update window is closed, with the
+	// time each window opens next
+	DeferredServices map[string]time.Time
 }
 
 func newSwarmStack(name string, repo *stackRepo, branch string, tag string, composePath string, sopsFiles []string, valuesFile string, discoverSecrets bool, alwaysPullContainers *bool) *swarmStack {
@@ -40,8 +58,11 @@ func newSwarmStack(name string, repo *stackRepo, branch string, tag string, comp
 	}
 }
 
+// newSwarmStackFromConfig never fails: an invalid stack configuration is
+// recorded in configErr so the stack is reported as failed at every update
+// cycle instead of preventing SwarmCD from starting.
 func newSwarmStackFromConfig(name string, repo *stackRepo, branch string, tag string, stackConfig *util.StackConfig, globalSecretsDiscovery bool) *swarmStack {
-	return newSwarmStack(
+	swarmStack := newSwarmStack(
 		name,
 		repo,
 		branch,
@@ -52,6 +73,12 @@ func newSwarmStackFromConfig(name string, repo *stackRepo, branch string, tag st
 		globalSecretsDiscovery || stackConfig.SopsSecretsDiscovery,
 		stackConfig.AlwaysPullContainers,
 	)
+	window, err := parseUpdateWindow(stackConfig.UpdateWindow)
+	if err != nil {
+		swarmStack.configErr = fmt.Errorf("invalid configuration of %s stack, it will not be deployed: %w", name, err)
+	}
+	swarmStack.updateWindow = window
+	return swarmStack
 }
 
 // refAttr returns an slog attribute for the git ref (branch or tag)
@@ -62,12 +89,30 @@ func (swarmStack *swarmStack) refAttr() slog.Attr {
 	return slog.String("branch", swarmStack.branch)
 }
 
-func (swarmStack *swarmStack) updateStack() (revision string, err error) {
+func (swarmStack *swarmStack) updateStack() (result updateResult, err error) {
 	log := logger.With(
 		slog.String("stack", swarmStack.name),
 		swarmStack.refAttr(),
 	)
 
+	if swarmStack.configErr != nil {
+		return result, swarmStack.configErr
+	}
+
+	now := time.Now()
+	lastCheck := swarmStack.lastWindowCheck
+	if lastCheck.IsZero() {
+		lastCheck = now.Add(-time.Duration(config.UpdateInterval) * time.Second)
+	}
+	swarmStack.lastWindowCheck = now
+	if !swarmStack.updateWindow.isOpen(lastCheck, now) {
+		nextOpen := swarmStack.updateWindow.nextOpen(now)
+		log.Info("update window closed, skipping stack", "window", swarmStack.updateWindow.expr, "next_open", nextOpen)
+		result.DeferredUntil = &nextOpen
+		return
+	}
+
+	var revision string
 	if swarmStack.tag != "" {
 		log.Debug("fetching tag...")
 		revision, err = swarmStack.repo.fetchTag(swarmStack.tag)
@@ -79,6 +124,7 @@ func (swarmStack *swarmStack) updateStack() (revision string, err error) {
 		return
 	}
 	log.Debug("changes fetched", "revision", revision)
+	result.Revision = revision
 
 	log.Debug("reading stack file...")
 	stackBytes, err := swarmStack.readStack()
@@ -103,7 +149,7 @@ func (swarmStack *swarmStack) updateStack() (revision string, err error) {
 	log.Debug("decrypting secrets...")
 	err = swarmStack.decryptSopsFiles(stackContents)
 	if err != nil {
-		return "", fmt.Errorf("failed to decrypt one or more sops files for %s stack: %w", swarmStack.name, err)
+		return result, fmt.Errorf("failed to decrypt one or more sops files for %s stack: %w", swarmStack.name, err)
 	}
 
 	if config.AutoRotate {
@@ -114,6 +160,25 @@ func (swarmStack *swarmStack) updateStack() (revision string, err error) {
 		}
 	}
 
+	log.Debug("checking service update windows...")
+	result.DeferredServices, err = holdBackServices(stackContents, lastCheck, now)
+	if err != nil {
+		return result, fmt.Errorf("could not evaluate update windows of stack %s: %w", swarmStack.name, err)
+	}
+	for serviceName, nextOpen := range result.DeferredServices {
+		log.Info("update window closed, holding back service", "service", serviceName, "next_open", nextOpen)
+	}
+	if services, _ := getServices(stackContents); len(services) == 0 && len(result.DeferredServices) > 0 {
+		log.Info("all services held back, skipping deploy")
+		return
+	}
+
+	log.Debug("applying image pull policy...")
+	resolveImage, err := applyImagePullPolicy(stackContents, swarmStack.resolveImageMode(), registryDigest)
+	if err != nil {
+		return result, fmt.Errorf("could not apply image pull policy of stack %s: %w", swarmStack.name, err)
+	}
+
 	log.Debug("writing stack to file...")
 	err = swarmStack.writeStack(stackContents)
 	if err != nil {
@@ -121,7 +186,7 @@ func (swarmStack *swarmStack) updateStack() (revision string, err error) {
 	}
 
 	log.Debug("deploying stack...")
-	err = swarmStack.deployStack()
+	err = swarmStack.deployStack(resolveImage)
 	return
 }
 
@@ -288,11 +353,11 @@ func (swarmStack *swarmStack) writeStack(composeMap map[string]any) error {
 	return nil
 }
 
-func (swarmStack *swarmStack) deployStack() error {
+func (swarmStack *swarmStack) deployStack(resolveImage string) error {
 	cmd := stack.NewStackCommand(dockerCli)
 	cmd.SetArgs([]string{
 		"deploy", "--detach", "--with-registry-auth",
-		"--resolve-image", swarmStack.resolveImageMode(),
+		"--resolve-image", resolveImage,
 		"-c", path.Join(swarmStack.repo.path, swarmStack.composePath),
 		swarmStack.name,
 	})
@@ -315,7 +380,7 @@ func (swarmStack *swarmStack) resolveImageMode() string {
 		alwaysPull = *swarmStack.alwaysPullContainers
 	}
 	if alwaysPull {
-		return "always"
+		return imagePullAlways
 	}
-	return "changed"
+	return imagePullChanged
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/flags"
@@ -14,10 +15,12 @@ import (
 )
 
 type StackStatus struct {
-	Error    string
-	Revision string
-	RepoURL  string
-	Ref      string
+	Error            string
+	Revision         string
+	RepoURL          string
+	Ref              string
+	DeferredUntil    *time.Time
+	DeferredServices map[string]time.Time
 }
 
 var config *util.Config = &util.Configs
@@ -117,6 +120,9 @@ func initStacks() error {
 		}
 
 		swarmStack := newSwarmStackFromConfig(stack, stackRepo, branch, tag, stackConfig, config.SopsSecretsDiscovery)
+		if swarmStack.configErr != nil {
+			logger.Error(swarmStack.configErr.Error())
+		}
 		stacks = append(stacks, swarmStack)
 		stackStatus[stack] = &StackStatus{}
 		stackStatus[stack].RepoURL = stackRepo.url
