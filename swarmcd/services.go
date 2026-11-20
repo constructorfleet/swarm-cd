@@ -171,6 +171,24 @@ func GetStackServices(stackName string) ([]ServiceStatus, error) {
 	return result, nil
 }
 
+// liveStackServices returns the names, without stack prefix, of the stack's
+// services present in the swarm.
+func liveStackServices(stackName string) (map[string]bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), dockerQueryTimeout)
+	defer cancel()
+	services, err := dockerCli.Client().ServiceList(ctx, types.ServiceListOptions{
+		Filters: filters.NewArgs(filters.Arg("label", dockerStackNamespaceLabel+"="+stackName)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not list services of stack %s: %w", stackName, err)
+	}
+	live := make(map[string]bool, len(services))
+	for _, svc := range services {
+		live[strings.TrimPrefix(svc.Spec.Name, stackName+"_")] = true
+	}
+	return live, nil
+}
+
 // stackTasksByService lists the live (desired-state=running) tasks for a stack
 // and groups them by service ID, so each service can be enriched with its
 // container/task detail.

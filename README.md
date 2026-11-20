@@ -206,10 +206,16 @@ The window is open when the schedule fired since the previous update cycle, so:
 - a range such as `* 2-4 * * *` allows updates any time between 02:00 and 04:59;
 - a single point such as `0 3 * * *` allows one update cycle right after 03:00.
 
-When a **stack** window is closed, the stack is not pulled or deployed at all.
-When a **service** window is closed, the service is left out of the deploy and
-keeps running unchanged, while the rest of the stack is updated. Held back
-services are picked up in the first update cycle after their window opens.
+When a **stack** window is closed, every service of the stack is held back.
+When a **service** window is closed, only that service is held back, while the
+rest of the stack is updated. A held back service is left out of the deploy and
+keeps running unchanged, and is picked up in the first update cycle after its
+window opens.
+
+Windows gate updates, not creation: a service that is not running in the swarm
+(a new stack, a new service, or one removed with `docker stack rm` or
+`docker service rm`) is deployed right away. A service that exists but has
+scaled to 0 or is failing still counts as running and waits for its window.
 The web UI marks deferred stacks and held back services, and the
 `swarmcd_stack_deferred` / `swarmcd_service_deferred` [metrics](#metrics) expose them.
 

@@ -107,11 +107,11 @@ func (swarmStack *swarmStack) updateStack() (result updateResult, err error) {
 		lastCheck = now.Add(-time.Duration(config.UpdateInterval) * time.Second)
 	}
 	swarmStack.lastWindowCheck = now
-	if !swarmStack.updateWindow.isOpen(lastCheck, now) {
+	stackOpen := swarmStack.updateWindow.isOpen(lastCheck, now)
+	if !stackOpen {
 		nextOpen := swarmStack.updateWindow.nextOpen(now)
-		log.Info("update window closed, skipping stack", "window", swarmStack.updateWindow.expr, "next_open", nextOpen)
+		log.Info("update window closed, deploying only missing services", "window", swarmStack.updateWindow.expr, "next_open", nextOpen)
 		result.DeferredUntil = &nextOpen
-		return
 	}
 
 	var revision string
@@ -162,16 +162,25 @@ func (swarmStack *swarmStack) updateStack() (result updateResult, err error) {
 		}
 	}
 
-	log.Debug("checking service update windows...")
-	result.DeferredServices, err = holdBackServices(stackContents, lastCheck, now)
+	log.Debug("checking update windows...")
+	live, err := liveStackServices(swarmStack.name)
+	if err != nil {
+		return result, err
+	}
+	var held int
+	result.DeferredServices, held, err = holdBackServices(stackContents, swarmStack.updateWindow, live, lastCheck, now)
 	if err != nil {
 		return result, fmt.Errorf("could not evaluate update windows of stack %s: %w", swarmStack.name, err)
 	}
 	for serviceName, nextOpen := range result.DeferredServices {
 		log.Info("update window closed, holding back service", "service", serviceName, "next_open", nextOpen)
 	}
-	if services, _ := getServices(stackContents); len(services) == 0 && len(result.DeferredServices) > 0 {
+	if services, _ := getServices(stackContents); len(services) == 0 && held > 0 {
 		log.Info("all services held back, skipping deploy")
+		if !stackOpen {
+			// revision is not deployed; keep reporting the previous one
+			result.Revision = ""
+		}
 		return
 	}
 
