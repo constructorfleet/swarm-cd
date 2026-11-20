@@ -83,8 +83,7 @@ func TestGetDeployLabel(t *testing.T) {
 	}
 }
 
-func TestHoldBackServices(t *testing.T) {
-	composeMap := mustParseCompose(t, `services:
+const holdBackCompose = `services:
   plex:
     image: plex
     deploy:
@@ -92,24 +91,68 @@ func TestHoldBackServices(t *testing.T) {
         swarmcd.update.window: "* 2-4 * * *"
   sonarr:
     image: sonarr
-`)
-	lastCheck := time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
-	now := lastCheck.Add(2 * time.Minute)
-	deferred, err := holdBackServices(composeMap, lastCheck, now)
+`
+
+var (
+	holdBackLastCheck = time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
+	holdBackNow       = holdBackLastCheck.Add(2 * time.Minute)
+)
+
+func assertServices(t *testing.T, composeMap map[string]any, want ...string) {
+	t.Helper()
+	services, _ := getServices(composeMap)
+	if len(services) != len(want) {
+		t.Errorf("got services %v, want %v", services, want)
+	}
+	for _, name := range want {
+		if _, ok := services[name]; !ok {
+			t.Errorf("%s should still be in the compose file", name)
+		}
+	}
+}
+
+func TestHoldBackServices(t *testing.T) {
+	composeMap := mustParseCompose(t, holdBackCompose)
+	live := map[string]bool{"plex": true, "sonarr": true}
+	deferred, held, err := holdBackServices(composeMap, nil, live, holdBackLastCheck, holdBackNow)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantNext := time.Date(2026, 11, 15, 2, 0, 0, 0, time.UTC)
-	if len(deferred) != 1 || !deferred["plex"].Equal(wantNext) {
-		t.Errorf("unexpected deferred services: %v", deferred)
+	if held != 1 || len(deferred) != 1 || !deferred["plex"].Equal(wantNext) {
+		t.Errorf("unexpected hold back: %v, %d held", deferred, held)
 	}
-	services, _ := getServices(composeMap)
-	if _, ok := services["plex"]; ok {
-		t.Error("plex should have been removed from the compose file")
+	assertServices(t, composeMap, "sonarr")
+}
+
+// Windows gate updates, not creation.
+func TestHoldBackServicesDeploysMissing(t *testing.T) {
+	composeMap := mustParseCompose(t, holdBackCompose)
+	deferred, held, err := holdBackServices(composeMap, nil, map[string]bool{}, holdBackLastCheck, holdBackNow)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := services["sonarr"]; !ok {
-		t.Error("sonarr should still be in the compose file")
+	if held != 0 || len(deferred) != 0 {
+		t.Errorf("missing services should not be held back: %v, %d held", deferred, held)
 	}
+	assertServices(t, composeMap, "plex", "sonarr")
+}
+
+func TestHoldBackServicesStackWindowClosed(t *testing.T) {
+	stackWindow, err := parseUpdateWindow("0 0 1 1 *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	composeMap := mustParseCompose(t, holdBackCompose)
+	deferred, held, err := holdBackServices(composeMap, stackWindow, map[string]bool{"sonarr": true}, holdBackLastCheck, holdBackNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the stack window is reported at stack level, not per service
+	if held != 1 || len(deferred) != 0 {
+		t.Errorf("unexpected hold back: %v, %d held", deferred, held)
+	}
+	assertServices(t, composeMap, "plex")
 }
 
 func TestHoldBackServicesInvalidWindow(t *testing.T) {
@@ -119,7 +162,7 @@ func TestHoldBackServicesInvalidWindow(t *testing.T) {
       labels:
         swarmcd.update.window: "nope"
 `)
-	if _, err := holdBackServices(composeMap, time.Now(), time.Now()); err == nil {
+	if _, _, err := holdBackServices(composeMap, nil, map[string]bool{}, time.Now(), time.Now()); err == nil {
 		t.Error("expected an error for an invalid service update window")
 	}
 }
@@ -226,22 +269,6 @@ func TestApplyImagePullPolicyResolveError(t *testing.T) {
 	services, _ := getServices(composeMap)
 	if mode != imagePullChanged || services["web"]["image"] != "nginx" {
 		t.Errorf("expected unpinned image with mode changed, got %v with %s", services["web"]["image"], mode)
-	}
-}
-
-// A closed stack update window skips the update before touching the repo
-func TestUpdateStackWindowClosed(t *testing.T) {
-	window, err := parseUpdateWindow("0 0 1 1 *")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stack := &swarmStack{name: "test", updateWindow: window, lastWindowCheck: time.Now().Add(-time.Minute)}
-	result, err := stack.updateStack()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.DeferredUntil == nil || !result.DeferredUntil.Equal(window.nextOpen(stack.lastWindowCheck)) {
-		t.Errorf("expected stack to be deferred until the next window, got %v", result.DeferredUntil)
 	}
 }
 

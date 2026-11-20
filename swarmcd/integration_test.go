@@ -258,29 +258,62 @@ func TestIntegrationServiceWindowHoldsBack(t *testing.T) {
 	if env := serviceEnv(t, swarmStack.name+"_free"); len(env) != 1 || env[0] != "VALUE=2" {
 		t.Errorf("free: env %v, want the new VALUE=2", env)
 	}
+
+	// a removed service is recreated although its window is closed
+	runDocker(t, "", "service", "rm", swarmStack.name+"_held")
+	result = mustUpdate(t, swarmStack)
+	if len(result.DeferredServices) != 0 {
+		t.Errorf("expected the missing service to be deployed, got deferred %v", result.DeferredServices)
+	}
+	if env := serviceEnv(t, swarmStack.name+"_held"); len(env) != 1 || env[0] != "VALUE=2" {
+		t.Errorf("held: env %v, want it recreated with VALUE=2", env)
+	}
 }
 
-// A closed stack update window deploys nothing.
+// A closed stack update window holds back live services but creates missing ones.
 func TestIntegrationStackWindowClosed(t *testing.T) {
 	setupIntegration(t)
 	image := integrationRegistry() + "/swarmcd-it/stackwindow:latest"
 	pushImage(t, image, "stackwindow")
 
-	source := newGitSource(t)
-	source.commit(fmt.Sprintf(`services:
+	compose := func(value string) string {
+		return fmt.Sprintf(`services:
   app:
     image: %s
     command: ["sleep", "3600"]
-`, image))
+    environment:
+      VALUE: "%s"
+`, image, value)
+	}
+	source := newGitSource(t)
+	source.commit(compose("1"))
 	closedWindow := fmt.Sprintf("* %d * * *", (time.Now().UTC().Hour()+12)%24)
 	swarmStack := newIntegrationStack(t, "itstackwindow", source, &util.StackConfig{UpdateWindow: closedWindow})
+	app := swarmStack.name + "_app"
 
 	result := mustUpdate(t, swarmStack)
-	if result.DeferredUntil == nil || result.Deployed {
-		t.Fatalf("expected the stack to be deferred, got %+v", result)
+	if result.DeferredUntil == nil || !result.Deployed {
+		t.Fatalf("expected the new stack to be deployed while deferred, got %+v", result)
 	}
-	_, _, err := dockerCli.Client().ServiceInspectWithRaw(context.Background(), swarmStack.name+"_app", types.ServiceInspectOptions{})
-	if err == nil {
-		t.Error("service was created although the stack window is closed")
+	if env := serviceEnv(t, app); len(env) != 1 || env[0] != "VALUE=1" {
+		t.Fatalf("app: env %v, want VALUE=1", env)
+	}
+
+	source.commit(compose("2"))
+	result = mustUpdate(t, swarmStack)
+	if result.DeferredUntil == nil || result.Deployed || result.Revision != "" {
+		t.Errorf("expected the update to be deferred, got %+v", result)
+	}
+	if env := serviceEnv(t, app); len(env) != 1 || env[0] != "VALUE=1" {
+		t.Errorf("app: env %v, want it untouched at VALUE=1", env)
+	}
+
+	runDocker(t, "", "service", "rm", app)
+	result = mustUpdate(t, swarmStack)
+	if !result.Deployed {
+		t.Fatalf("expected the removed service to be recreated, got %+v", result)
+	}
+	if env := serviceEnv(t, app); len(env) != 1 || env[0] != "VALUE=2" {
+		t.Errorf("app: env %v, want it recreated with VALUE=2", env)
 	}
 }

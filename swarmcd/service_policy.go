@@ -65,27 +65,38 @@ func getDeployLabel(service map[string]any, key string) string {
 	return ""
 }
 
-// holdBackServices removes services whose update window is closed from the
-// compose file. Since stacks are deployed without --prune, services missing
-// from the compose file are left running untouched. It returns, for each held
-// back service, the time its window opens next.
-func holdBackServices(composeMap map[string]any, lastCheck time.Time, now time.Time) (map[string]time.Time, error) {
+// holdBackServices removes live services whose stack or service update window
+// is closed from the compose file. Windows gate updates only: services absent
+// from the swarm are kept so they get created. Since stacks are deployed
+// without --prune, removed services keep running untouched. It returns the
+// services held back by their own window, with the time it opens next, and
+// the number of services held back for any reason.
+func holdBackServices(composeMap map[string]any, stackWindow *updateWindow, live map[string]bool, lastCheck time.Time, now time.Time) (map[string]time.Time, int, error) {
 	services, err := getServices(composeMap)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+	stackOpen := stackWindow.isOpen(lastCheck, now)
 	deferred := map[string]time.Time{}
+	held := 0
 	for serviceName, service := range services {
 		window, err := parseUpdateWindow(getDeployLabel(service, labelUpdateWindow))
 		if err != nil {
-			return nil, fmt.Errorf("service %s: %w", serviceName, err)
+			return nil, 0, fmt.Errorf("service %s: %w", serviceName, err)
 		}
-		if !window.isOpen(lastCheck, now) {
+		if !live[serviceName] {
+			continue
+		}
+		serviceOpen := window.isOpen(lastCheck, now)
+		if !serviceOpen {
 			deferred[serviceName] = window.nextOpen(now)
+		}
+		if !serviceOpen || !stackOpen {
+			held++
 			delete(composeMap["services"].(map[string]any), serviceName)
 		}
 	}
-	return deferred, nil
+	return deferred, held, nil
 }
 
 // digestResolver returns the registry digest of an image reference.
